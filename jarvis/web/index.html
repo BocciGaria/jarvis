@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis</title>
+<style>
+  :root {
+    --bg: #05080f;
+    --bg-2: #0a1220;
+    --panel: rgba(14, 26, 44, 0.72);
+    --line: rgba(90, 200, 255, 0.18);
+    --text: #dceaf7;
+    --muted: #7d93ab;
+    --accent: #4fd6ff;
+    --accent-2: #2a8cff;
+    --user: #1b3a5c;
+    --danger: #ff6b7a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(1200px 700px at 50% -10%, #0f2340 0%, var(--bg-2) 45%, var(--bg) 100%);
+    color: var(--text);
+    font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(5, 10, 18, 0.6);
+    backdrop-filter: blur(6px);
+  }
+  header { flex-wrap: wrap; row-gap: 8px; }
+  @media (max-width: 760px) { .spacer { flex-basis: 100%; height: 0; } #orb { width: 200px; height: 200px; } }
+  .brand { font-weight: 600; letter-spacing: 0.32em; color: var(--accent); font-size: 15px; }
+  .model { color: var(--muted); font-size: 12px; font-family: Consolas, monospace; }
+  .spacer { flex: 1; }
+  .toggle, .btn-ghost, select {
+    background: transparent; color: var(--text);
+    border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 12px; font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  select { max-width: 220px; border-radius: 8px; background: var(--bg-2); }
+  .toggle:disabled { opacity: .4; cursor: not-allowed; }
+  .toggle[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: rgba(79, 214, 255, 0.08); }
+  .btn-ghost:hover, .toggle:hover { border-color: var(--accent); }
+
+  main { flex: 1; display: grid; grid-template-rows: auto 1fr; min-height: 0; }
+
+  .stage { display: flex; flex-direction: column; align-items: center; padding-top: 6px; }
+  #orb { width: 260px; height: 260px; }
+  #status { margin-top: -6px; color: var(--muted); font-size: 13px; letter-spacing: 0.12em; min-height: 18px; }
+
+  .mic-warning { margin-top: 8px; max-width: min(560px, 92vw); text-align: center; font-size: 12.5px; line-height: 1.6; color: #ffcf6b; border: 1px solid rgba(255, 207, 107, 0.35); background: rgba(255, 207, 107, 0.07); border-radius: 10px; padding: 6px 12px; }
+  #log {
+    overflow-y: auto; padding: 12px 18px 24px;
+    display: flex; flex-direction: column; gap: 10px;
+    width: min(860px, 100%); margin: 0 auto;
+    scrollbar-width: thin; scrollbar-color: var(--line) transparent;
+  }
+  .msg { max-width: 82%; padding: 10px 14px; border-radius: var(--radius); line-height: 1.7; white-space: pre-wrap; word-break: break-word; font-size: 14.5px; }
+  .msg.user { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
+  .msg.jarvis { align-self: flex-start; background: var(--panel); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .msg.jarvis a { color: var(--accent); }
+  .msg.error { align-self: center; color: var(--danger); background: rgba(255, 107, 122, 0.08); border: 1px solid rgba(255, 107, 122, 0.3); font-size: 13px; }
+  .chip { display: inline-block; font-size: 12px; color: var(--accent); border: 1px solid var(--line); border-radius: 999px; padding: 1px 9px; margin: 2px 0 6px; }
+  .notice { display: block; color: var(--muted); font-size: 12.5px; font-style: italic; }
+  .hint { color: var(--muted); text-align: center; font-size: 13px; margin-top: 8px; line-height: 1.8; }
+
+  footer { padding: 12px 18px 18px; border-top: 1px solid var(--line); background: rgba(5, 10, 18, 0.6); }
+  .bar { width: min(860px, 100%); margin: 0 auto; display: flex; gap: 10px; align-items: center; }
+  #mic {
+    width: 52px; height: 52px; border-radius: 50%; flex: none;
+    border: 1px solid var(--accent); background: rgba(79, 214, 255, 0.08);
+    color: var(--accent); cursor: pointer; display: grid; place-items: center;
+    transition: background .2s, box-shadow .2s;
+  }
+  #mic:hover { background: rgba(79, 214, 255, 0.16); }
+  #mic.on { background: var(--accent); color: var(--bg); box-shadow: 0 0 24px rgba(79, 214, 255, 0.6); }
+  #mic:disabled { opacity: .35; cursor: not-allowed; }
+  #input {
+    flex: 1; min-width: 0; padding: 14px 16px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--bg-2); color: var(--text);
+    font: inherit; font-size: 14.5px; outline: none;
+  }
+  #input:focus { border-color: var(--accent); }
+  #send { padding: 0 20px; height: 48px; border-radius: 999px; border: none; background: var(--accent-2); color: white; font: inherit; cursor: pointer; }
+  #send:disabled { opacity: .4; cursor: not-allowed; }
+
+  dialog { background: var(--bg-2); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); width: min(520px, 92vw); padding: 18px 20px; }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+  dialog h2 { margin: 0 0 10px; font-size: 15px; color: var(--accent); letter-spacing: .1em; }
+  dialog ol { padding-left: 1.4em; line-height: 1.8; max-height: 50vh; overflow: auto; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">J.A.R.V.I.S.</span>
+  <span class="model">__JARVIS_MODEL__</span>
+  <span class="spacer"></span>
+  <select id="voice" title="読み上げの声"></select>
+  <button class="toggle" id="wakeToggle" aria-pressed="false" title="「Hey Jarvis」と呼びかけるとマイクが起動します">👂 Hey Jarvis</button>
+  <button class="toggle" id="speakToggle" aria-pressed="true" title="返答を音声で読み上げる">🔊 読み上げ</button>
+  <button class="toggle" id="convToggle" aria-pressed="false" title="読み上げ後に自動でマイクを再開する">🔁 会話モード</button>
+  <button class="btn-ghost" id="memoryBtn">メモ</button>
+  <button class="btn-ghost" id="resetBtn">リセット</button>
+</header>
+
+<main>
+  <div class="stage">
+    <canvas id="orb" width="520" height="520" aria-hidden="true"></canvas>
+    <div id="status" role="status">待機中</div>
+    <div id="micWarning" class="mic-warning" hidden></div>
+  </div>
+  <div id="log" aria-live="polite">
+    <div class="hint" id="hint">「Hey Jarvis」と呼びかけるか、マイクボタン（Ctrl+Space）を押して話しかけてください。<br>文字で入力して Enter でも送れます。</div>
+  </div>
+</main>
+
+<footer>
+  <div class="bar">
+    <button id="mic" title="音声入力 (Ctrl+Space)" aria-label="音声入力">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v1a7 7 0 0 0 14 0v-1"/><path d="M12 18v4"/></svg>
+    </button>
+    <label for="input" class="sr-only">メッセージ</label>
+    <input id="input" placeholder="Jarvis に話しかける…" autocomplete="off">
+    <button id="send">送信</button>
+  </div>
+</footer>
+
+<dialog id="memoryDialog">
+  <h2>長期メモ</h2>
+  <div id="memoryBody"></div>
+  <p class="hint" style="text-align:left">消したいときは「◯番のメモを消して」と話しかけてください。</p>
+  <form method="dialog" style="text-align:right"><button class="btn-ghost">閉じる</button></form>
+</dialog>
+
+<script>
+const TOKEN = "__JARVIS_TOKEN__";
+const $ = (id) => document.getElementById(id);
+const logEl = $("log"), inputEl = $("input"), micBtn = $("mic"), sendBtn = $("send"), statusEl = $("status");
+
+// ---------- 設定（このPCのブラウザにだけ保存） ----------
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("jarvis." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("jarvis." + k, JSON.stringify(v)); } catch {} },
+};
+let speakEnabled = store.get("speak", true);
+let convMode = store.get("conv", false);
+function syncToggles() {
+  $("speakToggle").setAttribute("aria-pressed", speakEnabled);
+  $("convToggle").setAttribute("aria-pressed", convMode);
+}
+syncToggles();
+$("speakToggle").onclick = () => { speakEnabled = !speakEnabled; store.set("speak", speakEnabled); if (!speakEnabled) stopSpeaking(); syncToggles(); };
+$("convToggle").onclick = () => { convMode = !convMode; store.set("conv", convMode); syncToggles(); };
+
+// ---------- 状態表示 ----------
+const STATUS_TEXT = { idle: "待機中", listening: "聞いています…", thinking: "考えています…", speaking: "お話ししています" };
+let state = "idle";
+function setState(s, text) { state = s; statusEl.textContent = text || STATUS_TEXT[s]; micBtn.classList.toggle("on", s === "listening"); }
+
+// ---------- 読み上げ（VOICEVOX、またはブラウザ内蔵の音声合成） ----------
+const synth = window.speechSynthesis;
+const VOICEVOX = "voicevox";
+let voices = [], chosenVoice = null, useVoicevox = true, pendingUtterances = 0;
+function loadVoices() {
+  voices = synth ? synth.getVoices().filter(v => v.lang && v.lang.toLowerCase().startsWith("ja")) : [];
+  const saved = store.get("speaker", VOICEVOX);
+  // ブラウザの声は VOICEVOX に繋がらないときの代わりにも使う
+  chosenVoice = voices.find(v => v.name === saved)
+    || voices.find(v => /Keita.*(Natural|Online)/i.test(v.name))
+    || voices.find(v => /(Natural|Online)/i.test(v.name))
+    || voices[0] || null;
+  useVoicevox = !chosenVoice || chosenVoice.name !== saved;
+  const sel = $("voice");
+  sel.innerHTML = "";
+  const options = [[VOICEVOX, "VOICEVOX:ナースロボ_タイプT"], ...voices.map(v => [v.name, v.name.replace(/^Microsoft\s*/, "").replace(/\s*-\s*Japanese.*$/, "")])];
+  for (const [value, label] of options) {
+    const o = document.createElement("option");
+    o.value = value; o.textContent = label;
+    o.selected = useVoicevox ? value === VOICEVOX : value === chosenVoice.name;
+    sel.appendChild(o);
+  }
+}
+loadVoices();
+if (synth) synth.onvoiceschanged = loadVoices;
+$("voice").onchange = (e) => {
+  store.set("speaker", e.target.value);
+  useVoicevox = e.target.value === VOICEVOX;
+  if (!useVoicevox) chosenVoice = voices.find(v => v.name === e.target.value) || chosenVoice;
+};
+
+function cleanForSpeech(t) {
+  return t.replace(/https?:\/\/\S+/g, "")
+          .replace(/[*#`>_~|]/g, "")
+          .replace(/^\s*[-・]\s*/gm, "")
+          .replace(/\(\s*\)|（\s*）/g, "")
+          .trim();
+}
+function speak(text) {
+  const t = cleanForSpeech(text);
+  if (!speakEnabled || !t) return;
+  useVoicevox ? speakVoicevox(t) : speakBrowser(t);
+}
+function speakBrowser(t) {
+  if (!synth) return;
+  const u = new SpeechSynthesisUtterance(t);
+  u.lang = "ja-JP"; u.rate = 1.05;
+  if (chosenVoice) u.voice = chosenVoice;
+  pendingUtterances++;
+  u.onstart = () => setState("speaking");
+  u.onend = u.onerror = () => { pendingUtterances = Math.max(0, pendingUtterances - 1); afterSpeech(); };
+  synth.speak(u);
+}
+
+// 文ごとに音声合成をすぐ始め、再生は順番どおりに行う
+let vvChain = Promise.resolve(), vvGen = 0, vvAudio = null, vvWarned = false;
+function speakVoicevox(t) {
+  const gen = vvGen;
+  pendingUtterances++;
+  const wav = fetch("/api/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Jarvis-Token": TOKEN },
+    body: JSON.stringify({ text: t }),
+  }).then(async (res) => { if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "HTTP " + res.status); return res.blob(); });
+  wav.catch(() => {});
+  vvChain = vvChain.then(async () => {
+    if (gen !== vvGen) return;
+    let blob;
+    try { blob = await wav; vvWarned = false; }
+    catch (err) {
+      if (gen !== vvGen) return;
+      if (!vvWarned) { vvWarned = true; addError((err.message || String(err)) + "　VOICEVOX を起動してください。それまではブラウザの声で読み上げます。"); }
+      speakBrowser(t);
+      return;
+    }
+    if (gen === vvGen) await playWav(blob);
+  }).finally(() => {
+    if (gen !== vvGen) return;  // 途中で止めた分はstopSpeaking()で数え直し済み
+    pendingUtterances = Math.max(0, pendingUtterances - 1); afterSpeech();
+  });
+}
+function playWav(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    const done = () => { URL.revokeObjectURL(url); if (vvAudio === audio) vvAudio = null; resolve(); };
+    audio.onended = audio.onerror = done;
+    audio.stop = () => { audio.pause(); done(); };
+    vvAudio = audio;
+    audio.play().then(() => setState("speaking")).catch(done);
+  });
+}
+function stopSpeaking() {
+  if (synth) synth.cancel();
+  vvGen++; vvChain = Promise.resolve();
+  if (vvAudio) vvAudio.stop();
+  pendingUtterances = 0; if (state === "speaking") setState("idle");
+}
+function afterSpeech() {
+  if (pendingUtterances > 0 || busy) return;
+  setState("idle");
+  if (convMode && recognition) startListening();
+}
+
+// 文の区切りごとに読み上げを始め、返答の完了を待たずに話し始める
+let speechBuffer = "";
+function feedSpeech(delta, final = false) {
+  speechBuffer += delta;
+  const re = /^[\s\S]*?[。！？!?\n]/;
+  let m;
+  while ((m = speechBuffer.match(re))) { speak(m[0]); speechBuffer = speechBuffer.slice(m[0].length); }
+  if (final && speechBuffer.trim()) { speak(speechBuffer); speechBuffer = ""; }
+}
+
+// ---------- 音声入力（ブラウザ内蔵の音声認識） ----------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null, finalText = "", listening = false;
+if (SR) {
+  recognition = new SR();
+  recognition.lang = "ja-JP";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  recognition.onresult = (e) => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) finalText += r[0].transcript; else interim += r[0].transcript;
+    }
+    inputEl.value = finalText + interim;
+  };
+  recognition.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") addError("マイクの使用が許可されていません。ウィンドウ左上の鍵アイコンからマイクを許可してください。");
+    else if (e.error === "network") addError("音声認識サービスに接続できません（インターネット接続が必要です）。");
+    else if (e.error !== "no-speech" && e.error !== "aborted") addError("音声認識エラー: " + e.error);
+  };
+  recognition.onend = () => {
+    listening = false; stopMicLevel();
+    const text = finalText.trim();
+    if (state === "listening") setState("idle");
+    if (text) send(text);
+  };
+} else {
+  micBtn.disabled = true;
+  micBtn.title = "このブラウザは音声入力に対応していません（Edge か Chrome をお使いください）";
+}
+
+function startListening() {
+  if (!recognition || listening || busy) return;
+  stopSpeaking();
+  finalText = ""; inputEl.value = "";
+  try { recognition.start(); listening = true; setState("listening"); startMicLevel(); } catch {}
+}
+function stopListening() { if (recognition && listening) recognition.stop(); }
+micBtn.onclick = () => {
+  if (state === "speaking") { stopSpeaking(); return; }
+  listening ? stopListening() : startListening();
+};
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.code === "Space") { e.preventDefault(); micBtn.click(); }
+  if (e.key === "Escape") { stopSpeaking(); stopListening(); }
+});
+
+// オーブの演出用にマイクの音量を拾う（失敗しても音声認識には影響しない）
+let audioCtx = null, analyser = null, micStream = null, levelData = null;
+async function startMicLevel() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioCtx = audioCtx || new AudioContext();
+    const src = audioCtx.createMediaStreamSource(micStream);
+    analyser = audioCtx.createAnalyser(); analyser.fftSize = 256;
+    levelData = new Uint8Array(analyser.frequencyBinCount);
+    src.connect(analyser);
+  } catch { analyser = null; }
+}
+function stopMicLevel() { if (micStream) micStream.getTracks().forEach(t => t.stop()); micStream = null; analyser = null; }
+function micLevel() {
+  if (!analyser) return 0;
+  analyser.getByteTimeDomainData(levelData);
+  let sum = 0; for (const v of levelData) { const d = (v - 128) / 128; sum += d * d; }
+  return Math.min(1, Math.sqrt(sum / levelData.length) * 4);
+}
+
+// ---------- チャット表示 ----------
+function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+function renderText(s) {
+  return escapeHtml(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/(https?:\/\/[^\s<）)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+}
+function addBubble(cls, html) {
+  $("hint")?.remove();
+  const div = document.createElement("div");
+  div.className = "msg " + cls; div.innerHTML = html;
+  logEl.appendChild(div); scrollDown();
+  return div;
+}
+function addError(text) { addBubble("error", escapeHtml(text)); }
+function scrollDown() { logEl.scrollTop = logEl.scrollHeight; }
+
+const TOOL_LABEL = { web_search: "🔍 Web で検索中", get_current_time: "🕒 時刻を確認", save_memory: "📝 メモに保存", list_memories: "📒 メモを確認", delete_memory: "🗑 メモを削除" };
+
+// ---------- 送信 ----------
+let busy = false;
+function setBusy(b) { busy = b; sendBtn.disabled = b; inputEl.disabled = b; }
+
+async function send(text) {
+  text = (text ?? inputEl.value).trim();
+  if (!text || busy) return;
+  stopSpeaking();
+  inputEl.value = "";
+  addBubble("user", escapeHtml(text));
+  const bubble = addBubble("jarvis", "");
+  let raw = "", extras = "";
+  const paint = () => { bubble.innerHTML = extras + renderText(raw); scrollDown(); };
+  setBusy(true); setState("thinking"); speechBuffer = "";
+
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Jarvis-Token": TOKEN },
+      body: JSON.stringify({ message: text }),
+    });
+    if (res.status === 409) throw new Error("前の返答を処理中です。少し待ってからお試しください。");
+    if (!res.ok || !res.body) throw new Error("サーバーに接続できません（" + res.status + "）");
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, idx); buf = buf.slice(idx + 2);
+        if (!line.startsWith("data: ")) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.type === "text") {
+          if (state === "thinking" && !pendingUtterances) setState("thinking", "応答中…");
+          raw += ev.text; feedSpeech(ev.text); paint();
+        } else if (ev.type === "tool") {
+          extras += `<span class="chip">${TOOL_LABEL[ev.name] || "⚙ " + escapeHtml(ev.name)}</span><br>`;
+          if (raw) { raw += "\n"; }
+          paint();
+        } else if (ev.type === "notice") {
+          raw +=(raw ? "\n" : "") + "［" + ev.text + "］"; paint();
+        } else if (ev.type === "error") {
+          throw new Error(ev.text);
+        }
+      }
+    }
+    feedSpeech("", true);
+    if (!raw && !extras) bubble.remove();
+  } catch (err) {
+    if (!raw) bubble.remove();
+    addError(err.message || String(err));
+    speechBuffer = "";
+  } finally {
+    setBusy(false);
+    if (!pendingUtterances) { setState("idle"); afterSpeech(); }
+    if (!listening) inputEl.focus();
+  }
+}
+sendBtn.onclick = () => send();
+inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); send(); } });
+
+// ---------- 「Hey Jarvis」呼びかけ検知（検知はサーバー側の PC 内で実行） ----------
+const wakeBtn = $("wakeToggle");
+let wakeWanted = store.get("wake", true);
+let micDevice = "";
+function showMicWarning(warning) {
+  const el = $("micWarning");
+  el.hidden = !warning;
+  el.textContent = warning ? "⚠ " + warning + (micDevice ? `（使用中のマイク: ${micDevice}）` : "") : "";
+}
+function showWakeStatus(s) {
+  micDevice = s.device || micDevice;
+  showMicWarning(s.warning);
+  wakeBtn.setAttribute("aria-pressed", !!s.enabled);
+  wakeBtn.title = s.error
+    ? "呼びかけ検知を開始できませんでした: " + s.error
+    : "「Hey Jarvis」と呼びかけるとマイクが起動します（OFF にするとマイクを解放します）";
+  if (s.error && wakeWanted) addError("「Hey Jarvis」検知を開始できませんでした。マイクの接続を確認してください。（" + s.error + "）");
+}
+async function setWake(enabled) {
+  const res = await fetch("/api/wakeword", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Jarvis-Token": TOKEN },
+    body: JSON.stringify({ enabled }),
+  });
+  return res.json();
+}
+async function initWake() {
+  try {
+    let s = await (await fetch("/api/wakeword", { headers: { "X-Jarvis-Token": TOKEN } })).json();
+    if (s.enabled !== wakeWanted && !s.error) s = await setWake(wakeWanted);
+    showWakeStatus(s);
+  } catch {}
+}
+wakeBtn.onclick = async () => {
+  wakeWanted = wakeBtn.getAttribute("aria-pressed") !== "true";
+  store.set("wake", wakeWanted);
+  wakeBtn.disabled = true;
+  try {
+    let s = await setWake(wakeWanted);
+    // 起動直後はマイクの準備中なので、少し待ってからエラーの有無を確かめる
+    if (wakeWanted) { await new Promise(r => setTimeout(r, 1500)); s = await (await fetch("/api/wakeword", { headers: { "X-Jarvis-Token": TOKEN } })).json(); }
+    showWakeStatus(s);
+  } catch {} finally { wakeBtn.disabled = false; }
+};
+
+function chime() {
+  try {
+    audioCtx = audioCtx || new AudioContext();
+    audioCtx.resume();
+    const now = audioCtx.currentTime;
+    [880, 1320].forEach((f, i) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0, now + i * 0.09);
+      g.gain.linearRampToValueAtTime(0.18, now + i * 0.09 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.09 + 0.25);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(now + i * 0.09); o.stop(now + i * 0.09 + 0.3);
+    });
+  } catch {}
+}
+
+function onWake() {
+  if (busy || listening) return;
+  chime();
+  stopSpeaking();
+  setTimeout(startListening, 250);  // チャイム音を拾わないよう少し待つ
+}
+
+// サーバーからの通知を受け取る（切れても自動で再接続される）
+const events = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN));
+events.onmessage = (e) => {
+  const ev = JSON.parse(e.data);
+  if (ev.type === "wake") onWake();
+  else if (ev.type === "mic") showMicWarning(ev.warning);
+};
+initWake();
+
+// ---------- メモ・リセット ----------
+$("memoryBtn").onclick = async () => {
+  const body = $("memoryBody");
+  try {
+    const res = await fetch("/api/memory", { headers: { "X-Jarvis-Token": TOKEN } });
+    const { memories } = await res.json();
+    body.innerHTML = memories.length
+      ? "<ol>" + memories.map(m => `<li>${escapeHtml(m)}</li>`).join("") + "</ol>"
+      : '<p class="hint" style="text-align:left">まだ何も保存されていません。「〜を覚えておいて」と話しかけると保存されます。</p>';
+  } catch { body.textContent = "メモを読み込めませんでした。"; }
+  $("memoryDialog").showModal();
+};
+$("resetBtn").onclick = async () => {
+  if (busy) return;
+  stopSpeaking(); stopListening();
+  await fetch("/api/reset", { method: "POST", headers: { "X-Jarvis-Token": TOKEN } }).catch(() => {});
+  logEl.innerHTML = '<div class="hint" id="hint">会話をリセットしました。</div>';
+};
+
+// ---------- オーブ（状態に合わせて動くアニメーション） ----------
+const canvas = $("orb"), ctx = canvas.getContext("2d");
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let t = 0, energy = 0;
+function drawOrb() {
+  const W = canvas.width, H = canvas.height, cx = W / 2, cy = H / 2;
+  t += reduceMotion ? 0.003 : 0.012;
+  const speed = { idle: 1, listening: 1.6, thinking: 3.2, speaking: 1.8 }[state];
+  let target = 0.1;
+  if (state === "listening") target = 0.25 + micLevel() * 0.9;
+  else if (state === "speaking") target = 0.35 + 0.3 * Math.abs(Math.sin(t * 9) * Math.sin(t * 3.7 + 1));
+  else if (state === "thinking") target = 0.3;
+  energy += (target - energy) * 0.15;
+
+  ctx.clearRect(0, 0, W, H);
+  // 中心の光
+  const core = 70 + energy * 40;
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, core * 2.2);
+  g.addColorStop(0, "rgba(220, 248, 255, 0.95)");
+  g.addColorStop(0.18, "rgba(79, 214, 255, 0.75)");
+  g.addColorStop(0.5, "rgba(42, 140, 255, 0.18)");
+  g.addColorStop(1, "rgba(42, 140, 255, 0)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, core * 2.2, 0, Math.PI * 2); ctx.fill();
+
+  // 回転するリング
+  const rings = [
+    { r: 120, w: 3, segs: 3, gap: 0.5, dir: 1 },
+    { r: 150, w: 1.5, segs: 6, gap: 0.35, dir: -1.4 },
+    { r: 180, w: 6, segs: 2, gap: 1.6, dir: 0.7 },
+    { r: 205, w: 1, segs: 24, gap: 0.12, dir: -0.3 },
+  ];
+  for (const [i, ring] of rings.entries()) {
+    const r = ring.r + energy * (12 + i * 6);
+    const step = (Math.PI * 2) / ring.segs;
+    ctx.strokeStyle = `rgba(79, 214, 255, ${0.35 + energy * 0.5})`;
+    ctx.lineWidth = ring.w;
+    ctx.shadowColor = "rgba(79, 214, 255, 0.8)"; ctx.shadowBlur = 12;
+    for (let s = 0; s < ring.segs; s++) {
+      const a = t * ring.dir * speed + s * step;
+      ctx.beginPath(); ctx.arc(cx, cy, r, a, a + step - ring.gap); ctx.stroke();
+    }
+  }
+  ctx.shadowBlur = 0;
+
+  // 音の波形風の輪
+  ctx.strokeStyle = `rgba(160, 235, 255, ${0.25 + energy * 0.6})`;
+  ctx.lineWidth = 2; ctx.beginPath();
+  for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.05) {
+    const wobble = Math.sin(a * 6 + t * 6) * Math.sin(a * 3 - t * 4) * energy * 18;
+    const r = 95 + wobble;
+    const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+    a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.closePath(); ctx.stroke();
+  requestAnimationFrame(drawOrb);
+}
+drawOrb();
+inputEl.focus();
+</script>
+</body>
+</html>
