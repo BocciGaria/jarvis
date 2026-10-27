@@ -6,25 +6,33 @@ from collections.abc import Iterator
 import anthropic
 from dotenv import load_dotenv
 
-from jarvis.tools import load_conversations, load_memories, run_tool, tools_for
+from jarvis.tools import load_conversations, load_memories, run_display, run_tool, tools_for
 
 load_dotenv()
 
 from jarvis.memorizer import log_exchange, new_session  # noqa: E402  .env の設定を読んでから取り込む
 
-MODEL = os.getenv("JARVIS_MODEL", "claude-sonnet-5-5")
+MODEL = os.getenv("JARVIS_MODEL", "claude-haiku-5-5")  # 普段の会話
+SMART_MODEL = os.getenv("JARVIS_SMART_MODEL", "claude-sonnet-5-5")  # 込み入った依頼。空にすると切り替えない
+ROUTING = bool(SMART_MODEL) and SMART_MODEL != MODEL
+MODEL_LABEL = f"{MODEL} → {SMART_MODEL}" if ROUTING else MODEL
 EFFORT = os.getenv("JARVIS_EFFORT", "low")  # low | medium | high | xhigh | max
 USER_NAME = os.getenv("JARVIS_USER_NAME", "")
 RECALL_CONVERSATIONS = int(os.getenv("JARVIS_RECALL_CONVERSATIONS", "5"))  # 思い出す過去の会話の数
-TOOLS = tools_for(MODEL)
 
-# 安全分類器に断られた場合、Anthropic 推奨のモデルでサーバー側が自動リトライする。
-# Haiku にはサーバー側フォールバックがないため付けない。
-FALLBACK_PARAMS = (
-    {}
-    if "haiku" in MODEL
-    else {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
-)
+
+def _request_params(model: str, handoff: bool) -> dict:
+    params = {"model": model, "tools": tools_for(model, handoff)}
+    # 安全分類器に断られた場合、Anthropic 推奨のモデルでサーバー側が自動リトライする。
+    # Haiku にはサーバー側フォールバックがないため付けない。
+    if "haiku" not in model:
+        params |= {"betas": ["server-side-fallback-2026-07-01"], "fallbacks": "default"}
+    return params
+
+
+# 普段は MODEL が答え、込み入った依頼だと判断したら use_smart_model を呼んでそのターンを SMART_MODEL に任せる
+BASIC_PARAMS = _request_params(MODEL, handoff=ROUTING)
+SMART_PARAMS = _request_params(SMART_MODEL, handoff=False) if ROUTING else BASIC_PARAMS
 
 SYSTEM_PROMPT = """あなたは「Jarvis（ジャーヴィス）」、ユーザー専属の有能で落ち着いたAIアシスタントです。
 - 基本は日本語で、丁寧かつ簡潔に話します。少しだけウィットを効かせても構いません。
@@ -33,7 +41,9 @@ SYSTEM_PROMPT = """あなたは「Jarvis（ジャーヴィス）」、ユーザ�
 - 会話の内容は自動的に記録され、定期的に長期メモと会話の要約に整理されます。ユーザーにはっきり「覚えておいて」と頼まれたときだけ save_memory で即座に保存します。
 - 長期メモや過去の会話の要約にある内容は、自然に踏まえて話します。
 - 分からないことは推測で断定せず、分からないと伝えます。
-- 返答は画面に表示され、音声でも読み上げられます。Markdownの装飾や長い箇条書きは避け、話し言葉として自然な短めの文章にします。URLは必要なときだけ示します。"""
+- 返答は音声で読み上げられます。Markdownの装飾や長い箇条書きは避け、話し言葉として自然な短めの文章にします。
+- 一覧・手順・表・数値・URL・コード・画像など、見せたほうが分かりやすい情報は show_display で画面に表示し、声では「画面に出しました」と要点だけを伝えます。
+- 写真や画像を見せてと頼まれたら web_search で探し、画像ファイルか、その画像が載っているページの URL を show_display の image_url に渡して画像そのものを表示します。URL だけを見せて済ませません。"""
 
 
 def build_system() -> str:
@@ -77,48 +87,57 @@ class Assistant:
 
     def __init__(self, client: anthropic.Anthropic | None = None):
         self.client = client or anthropic.Anthropic()
+        self.record = True  # False の間はやりとりをログに残さない（自動で記憶されない）
         self.reset()
 
     def reset(self) -> None:
         self.messages: list = []
+        self._made_with: dict[int, int] = {}  # 応答メッセージ → それを生成したリクエスト設定（id で対応づけ）
         self.session_id, self.started = new_session()
         self.system = build_system()  # 新しく保存・整理されたメモや会話の要約も反映
 
     def chat(self, user_input: str) -> Iterator[dict]:
-        """応答を {"type": "text"|"tool"|"notice", ...} のイベントとして yield する。
+        """応答を {"type": "text"|"tool"|"display"|"notice", ...} のイベントとして yield する。
         失敗・中断時は会話履歴を直前の完了状態に戻してから例外を送出する。"""
         turn_start = len(self.messages)
         self.messages.append({"role": "user", "content": user_input})
         try:
-            yield from self._respond()
+            yield from self._respond(turn_start)
         except BaseException:
             self._drop_unfinished_turn()
             raise
-        if len(self.messages) > turn_start:  # 途中で取り消されなかったターンだけログに残す
+        if self.record and len(self.messages) > turn_start:  # 途中で取り消されなかったターンだけログに残す
             log_exchange(self.session_id, self.started, user_input, self._turn_text(turn_start))
 
     def _turn_text(self, start: int) -> str:
-        """ターン内の Jarvis の返答テキストをつなげる。"""
-        return "".join(
-            b.text
-            for m in self.messages[start:]
-            if m["role"] == "assistant"
-            for b in m["content"]
-            if getattr(b, "type", None) == "text"
-        )
+        """ターン内の Jarvis の返答テキストと、画面に表示したパネルの内容をつなげる。"""
+        parts = []
+        for m in self.messages[start:]:
+            if m["role"] != "assistant":
+                continue
+            for b in m["content"]:
+                kind = getattr(b, "type", None)
+                if kind == "text":
+                    parts.append(b.text)
+                elif kind == "tool_use" and b.name == "show_display" and isinstance(b.input, dict):
+                    # 声では「画面に出しました」としか言わないため、パネルの中身も整理の材料に残す
+                    panel = f"\n［画面に表示: {b.input.get('title', '')}］\n{b.input.get('body') or ''}"
+                    if b.input.get("image_url"):
+                        panel += f"\n（画像: {b.input['image_url']}）"
+                    parts.append(panel.rstrip() + "\n")
+        return "".join(parts).strip()
 
-    def _respond(self) -> Iterator[dict]:
+    def _respond(self, turn_start: int) -> Iterator[dict]:
         json_retries = 0
+        params = BASIC_PARAMS
         while True:
             try:
                 with self.client.beta.messages.stream(
-                    model=MODEL,
                     max_tokens=64000,
                     system=[{"type": "text", "text": self.system, "cache_control": {"type": "ephemeral"}}],
-                    messages=self.messages,
-                    tools=TOOLS,
+                    messages=self._messages_for(params),
                     output_config={"effort": EFFORT},
-                    **FALLBACK_PARAMS,
+                    **params,
                 ) as stream:
                     for event in stream:
                         if event.type == "text":
@@ -135,7 +154,9 @@ class Assistant:
                 continue
 
             # 思考ブロックなども含めて丸ごと履歴に残す（次のリクエストで必要）
-            self.messages.append({"role": "assistant", "content": response.content})
+            message = {"role": "assistant", "content": response.content}
+            self._made_with[id(message)] = id(params)
+            self.messages.append(message)
 
             if response.stop_reason == "pause_turn":
                 continue  # 長いWeb検索の途中で一時停止 → そのまま続きを依頼
@@ -153,15 +174,39 @@ class Assistant:
                 yield {"type": "notice", "text": "ツール入力が途中で切れたため中断しました"}
                 self._drop_unfinished_turn()
                 return
+            if any(b.name == "use_smart_model" for b in tool_uses):
+                # このターンの途中経過を捨て、ユーザーの発言から上位モデルでやり直す
+                del self.messages[turn_start + 1 :]
+                params = SMART_PARAMS
+                yield {"type": "tool", "name": "use_smart_model"}
+                continue
 
             results = []
             for block in tool_uses:
                 yield {"type": "tool", "name": block.name}
-                output, is_error = run_tool(block.name, block.input)
+                if block.name == "show_display":
+                    output, is_error, display = run_display(block.input)
+                    if display:
+                        yield display
+                else:
+                    output, is_error = run_tool(block.name, block.input)
                 results.append(
                     {"type": "tool_result", "tool_use_id": block.id, "content": output, "is_error": is_error}
                 )
             self.messages.append({"role": "user", "content": results})
+
+    def _messages_for(self, params: dict) -> list:
+        """別のモデル・ツール一覧で生成された応答から思考ブロックを外す。
+        思考ブロックの署名は生成時のツール一覧に結びついており、異なる設定で送り返すと 400 になる。"""
+        messages = []
+        for m in self.messages:
+            if m["role"] == "assistant" and self._made_with.get(id(m), id(params)) != id(params):
+                content = [
+                    b for b in m["content"] if getattr(b, "type", None) not in ("thinking", "redacted_thinking")
+                ]
+                m = {"role": "assistant", "content": content or [{"type": "text", "text": "…"}]}
+            messages.append(m)
+        return messages
 
     def _drop_unfinished_turn(self) -> None:
         """失敗したターンを履歴から取り除き、最後に完了した応答の状態に戻す。"""

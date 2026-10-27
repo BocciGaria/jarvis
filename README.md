@@ -1,6 +1,6 @@
 # Jarvis
 
-Claude API（既定は Claude Sonnet 5.5）を使った個人 AI アシスタントです。音声で話しかけられる GUI 版と、ターミナル版があります。
+Claude API（普段の会話は Claude Haiku 5.5、込み入った依頼は Claude Sonnet 5.5）を使った個人 AI アシスタントです。音声で話しかけられる GUI 版と、ターミナル版があります。
 
 ## できること
 
@@ -34,10 +34,10 @@ Claude Code デスクトップアプリの「スケジュールタスク」（�
 ```
 Jarvis の会話ログを整理して、長期メモと会話の要約を更新してください。
 1. `.venv/Scripts/python.exe organize.pyw prepare` を実行する。「整理する会話はありません」と出たら、何もせずに終了する。
-2. 表示された指示とルールに従って結果の JSON を作り、`data/logs/result.json` に書き込む。
+2. 表示された指示とルールに従って結果の JSON を作り、Write ツールで `data/logs/result.json` に UTF-8 で書き込む（シェルのリダイレクトは文字化けするので使わない）。
 3. `.venv/Scripts/python.exe organize.pyw apply data/logs/result.json` を実行し、表示された結果を一言で報告する。
-   形式エラーが出たら JSON を直して、もう一度 apply する。
-data/memory.json や data/conversations.json は直接編集しないこと。
+   形式エラーが出たら JSON を直して、もう一度 apply する。「失敗しました」と出て直せないときは、そのまま理由を報告して終了する（ログは残り、次回もう一度整理される）。
+data/memory.json・data/conversations.json・data/logs の .jsonl ファイルは直接編集しないこと。
 ```
 
 - アプリが起動していて PC が起きている間だけ動きます。スリープ中に飛ばされた分は、次の実行でまとめて整理されます
@@ -50,22 +50,31 @@ data/memory.json や data/conversations.json は直接編集しないこと。
 
 | 起動ファイル | 内容 |
 |---|---|
-| `jarvis.bat` | GUI 版。Edge（なければ Chrome）の専用ウィンドウが開きます。黒いウィンドウを閉じると終了 |
+| `jarvis.bat` | GUI 版。Edge（なければ Chrome）の専用ウィンドウが開きます。サーバーはコンソールなしで裏で動き、Jarvis の画面を閉じると数秒後に自動で終了します（出力は `data/logs/gui.log`）。起動中にもう一度起動すると画面だけ開きます |
 | `jarvis-cli.bat` | ターミナル版 |
+
+### スタートメニューから起動
+
+スタートメニュー（`%APPDATA%\Microsoft\Windows\Start Menu\Programs`）に `Jarvis.lnk` を置いてあり、スタートメニューで「Jarvis」と検索して起動できます（右クリック →「スタートにピン留め」も可）。アイコンは `jarvis/web/jarvis.ico` です。
 
 ### PC 起動時の自動起動
 
-スタートアップフォルダ（`Win+R` → `shell:startup`）に `Jarvis.lnk` と `VOICEVOX.lnk` を置いてあり、Windows にサインインすると両方が最小化で起動します。やめるときはそのショートカットを削除するか、タスクマネージャーの「スタートアップ アプリ」で無効にしてください。
+スタートアップフォルダ（`Win+R` → `shell:startup`）に `Jarvis.lnk` と `VOICEVOX.lnk` を置いてあり、Windows にサインインすると両方が起動します（VOICEVOX は最小化）。やめるときはそのショートカットを削除するか、タスクマネージャーの「スタートアップ アプリ」で無効にしてください。
 
 ## GUI 版の使い方
 
 - **「Hey Jarvis（ヘイ・ジャーヴィス）」**と呼びかける → チャイムが鳴ってウィンドウが前面に出るので、続けて用件を話します
 - マイクボタン（または **Ctrl+Space**）を押して話しても OK → 話し終わると自動で送信されます
-- 文字で入力して Enter でも送れます
+- 文字で入力して Enter でも送れます（Shift+Enter で改行）
+- 画面は中央のリアクターだけを表示します。一覧・手順・URL・画像など見せたほうが分かりやすい内容があると、Jarvis が判断してリアクターからパネルを出して表示します（✕ か **Esc** で閉じるとリアクターへ戻ります）
+  - パネルはリアクターの中心を避けた空き場所に、新しいものほど中央寄りに並びます。追加・削除のたびに全体の配置を自動で整えます
+  - 画面に収まらない分は古いものから重ねて奥に置きます。重なったパネルをクリックすると手前に出せます
+- **💬 ログ**：会話の内容を右側に表示します（既定は非表示）
 - 初回はマイクの使用許可を求められるので「許可」を選んでください
 - **🔊 読み上げ**：返答を音声で読み上げるか（右の一覧で声を選べます。既定は「VOICEVOX:ナースロボ_タイプT」。ほかに Windows/ブラウザの声も選べ、「Keita」「Nanami」の Natural 音声がおすすめ）
 - ナースロボ_タイプTの声で話すには [VOICEVOX](https://voicevox.hiroshiba.jp/) をインストールして起動しておいてください（Jarvis より先でも後でも OK）。起動していないときは自動でブラウザの声に切り替わります
 - **🔁 会話モード**：返答を読み上げ終わると自動でマイクが再開し、続けて話せます
+- **📝 記録**：オフにすると、その間の会話はログに残らず自動で記憶もされません
 - 読み上げ中にマイクボタンか **Esc** で読み上げを止められます
 - **👂 Hey Jarvis**：呼びかけ検知の ON/OFF。OFF にするとマイクを解放します
 - 呼びかけの検知は [openWakeWord](https://github.com/dscripka/openWakeWord) を使い PC 内だけで行うため、待機中の音声は外部に送られません（検知モデルは初回起動時に `models/` へ自動ダウンロード）
@@ -80,6 +89,7 @@ data/memory.json や data/conversations.json は直接編集しないこと。
 | `/reset` | 会話履歴をリセット（新しいメモも反映） |
 | `/memory` | 保存されたメモを表示 |
 | `/history` | 過去の会話の要約を表示 |
+| `/record` | 会話の記録のオン・オフを切り替え |
 | `/help` | ヘルプ |
 | `/exit` | 終了 |
 
@@ -87,22 +97,29 @@ data/memory.json や data/conversations.json は直接編集しないこと。
 
 | 変数 | 既定値 | 説明 |
 |---|---|---|
-| `JARVIS_MODEL` | `claude-sonnet-5-5` | 使うモデル（下の表を参照） |
+| `JARVIS_MODEL` | `claude-haiku-5-5` | 普段の会話に使うモデル（下の表を参照） |
+| `JARVIS_SMART_MODEL` | `claude-sonnet-5-5` | 込み入った依頼のときに切り替えるモデル。空にすると切り替えず、常に `JARVIS_MODEL` を使う |
 | `JARVIS_EFFORT` | `low` | 考える深さ（`low` / `medium` / `high` / `xhigh` / `max`）。低いほど速く安い |
 | `JARVIS_USER_NAME` | なし | あなたの呼び名 |
-| `JARVIS_AUTO_MEMORY` | `on` | 会話をログに記録して自動で記憶するか（`off` で無効） || `JARVIS_RECALL_CONVERSATIONS` | `5` | 会話開始時に思い出す過去の会話の数（`0` で無効） |
+| `JARVIS_AUTO_MEMORY` | `on` | 会話をログに記録して自動で記憶するか（`off` で無効） |
+| `JARVIS_RECALL_CONVERSATIONS` | `5` | 会話開始時に思い出す過去の会話の数（`0` で無効） |
 | `JARVIS_PORT` | `8765` | GUI 版が使うポート番号 |
 | `JARVIS_WAKEWORD` | `on` | 「Hey Jarvis」検知を起動時に有効にするか（`off` で無効） |
 | `JARVIS_WAKEWORD_THRESHOLD` | `0.5` | 検知の厳しさ（0〜1）。上げると誤反応が減り、下げると反応しやすくなる |
 | `JARVIS_VOICEVOX_SPEAKER` | `47` | VOICEVOX の声の番号（47 = ナースロボ＿タイプＴ ノーマル、48 = 楽々、49 = 恐怖、50 = 内緒話、2 = 四国めたん ノーマル） |
 | `JARVIS_VOICEVOX_SPEED` | `1.2` | VOICEVOX の話す速さ |
+| `JARVIS_VOICEVOX_PRE_SILENCE` | `0.1` | 各文の話し始めの無音（秒） |
+| `JARVIS_VOICEVOX_POST_SILENCE` | `0.1` | 各文の話し終わりの無音（秒）。文と文の間は「終了無音 + 開始無音」になります |
+| `JARVIS_VOICEVOX_PAUSE_SCALE` | `1.0` | 「、」などで入る間の長さの倍率（0.5 で半分、2 で倍） |
 | `JARVIS_VOICEVOX_URL` | `http://127.0.0.1:50021` | VOICEVOX エンジンの場所 |
 
 | モデル | 料金（入力 / 出力、100万トークンあたり） | 向いている使い方 |
 |---|---|---|
-| `claude-sonnet-5-5`（既定） | $2 / $10 | 日常の会話・調べ物。バランス重視 |
+| `claude-sonnet-5-5`（上位の既定） | $2 / $10 | 調べ物・相談など。バランス重視 |
 | `claude-opus-5-5` | $4 / $20 | 込み入った相談や調べ物 |
-| `claude-haiku-5-5` | $0.10 / $0.50 | とにかく安く。Web 検索は基本版になり、断られた際の自動リトライはなし |
+| `claude-haiku-5-5`（普段の既定） | $0.10 / $0.50 | 日常の会話。とにかく安く速い。Web 検索は基本版になり、断られた際の自動リトライはなし |
+
+モデルの切り替え：毎回まず `JARVIS_MODEL` が答え、調べて比べる・計画を立てる・込み入った相談・長い文章・コードや計算・専門的な質問など込み入った依頼だと判断したときだけ、そのターンを `JARVIS_SMART_MODEL` がやり直して答えます（画面には「🧠 上位モデルで考え中」と出ます）。次の発言からはまた `JARVIS_MODEL` に戻ります。
 
 ## ファイル構成
 

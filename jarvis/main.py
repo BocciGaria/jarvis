@@ -4,13 +4,14 @@ import sys
 
 import anthropic
 
-from jarvis.assistant import MODEL, Assistant, describe_error
+from jarvis.assistant import MODEL_LABEL, Assistant, describe_error
 from jarvis.tools import load_conversations, load_memories
 
 COMMANDS_HELP = """コマンド:
   /reset   会話履歴をリセット
   /memory  保存されたメモを表示
   /history 過去の会話の要約を表示
+  /record  会話の記録のオン・オフを切り替え
   /help    このヘルプを表示
   /exit    終了（Ctrl+C でも可）"""
 
@@ -22,7 +23,7 @@ def main() -> None:
 
     assistant = Assistant()
 
-    print(f"Jarvis 起動完了（{MODEL}）。ご用件をどうぞ。 /help でコマンド一覧")
+    print(f"Jarvis 起動完了（{MODEL_LABEL}）。ご用件をどうぞ。 /help でコマンド一覧")
     while True:
         try:
             user_input = input("\nあなた > ").strip()
@@ -38,6 +39,10 @@ def main() -> None:
         if user_input == "/history":
             conversations = load_conversations()
             print("\n".join(f"[{c['started']}] {c['summary']}" for c in conversations) or "会話の記録はまだありません")
+            continue
+        if user_input == "/record":
+            assistant.record = not assistant.record
+            print("会話を記録します。" if assistant.record else "会話を記録しません（オンに戻すまでのやりとりは残りません）。")
             continue
         if user_input == "/help":
             print(COMMANDS_HELP)
@@ -58,6 +63,11 @@ def main() -> None:
                     print(event["text"], end="", flush=True)
                 elif event["type"] == "tool":
                     print(f"\n  ⚙ {event['name']}", flush=True)
+                elif event["type"] == "display":
+                    print(f"\n┌─ {event['title']}")
+                    for line in filter(None, [*event["body"].splitlines(), event["image_url"]]):
+                        print(f"│ {line}")
+                    print("└─", flush=True)
                 elif event["type"] == "notice":
                     print(f"\n[{event['text']}]", end="")
             print()
