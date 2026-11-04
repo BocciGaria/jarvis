@@ -1,25 +1,20 @@
-"""Jarvis が使えるローカルツール（時刻・記憶・画面表示）。"""
+"""Jarvis が使えるローカルツール（カレンダー・記憶・画面表示）。"""
 
 import json
 import ssl
 import urllib.error
 import urllib.request
-from datetime import datetime
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 
 import certifi
 
+from jarvis import icloud
 from jarvis.memory import doc_title, load_docs, log_request, read_doc, search_archive
 
 # Claude に渡すローカルツール定義。Web 検索（Anthropic 側で実行）は tools_for() で追加する。
 TOOLS = [
-    {
-        "name": "get_current_time",
-        "description": "現在の日付・時刻・曜日を取得する。日付や時間に関する質問に答える前に使う。",
-        "eager_input_streaming": True,
-        "input_schema": {"type": "object", "properties": {}, "required": []},
-    },
+    *icloud.CALENDAR_TOOLS,
     {
         "name": "save_memory",
         "description": (
@@ -236,14 +231,12 @@ def run_display(args) -> tuple[str, bool, dict | None]:
 
 def run_tool(name: str, args) -> tuple[str, bool]:
     """ツールを実行して (結果テキスト, エラーかどうか) を返す。"""
+    if name in icloud.TOOL_NAMES:
+        return icloud.run_tool(name, args)
+
     error = _validate(name, args)
     if error:
         return f"INVALID_INPUT: {error} (受け取った入力: {json.dumps(args, ensure_ascii=False)})", True
-
-    if name == "get_current_time":
-        now = datetime.now().astimezone()
-        weekdays = "月火水木金土日"
-        return now.strftime(f"%Y年%m月%d日（{weekdays[now.weekday()]}） %H:%M:%S %Z"), False
 
     if name == "save_memory":
         log_request("note", args["note"])

@@ -9,6 +9,7 @@ Claude API（普段の会話は Claude Haiku 5.5、込み入った依頼は Clau
 - 音声入力と音声での返答（GUI 版）
 - Web 検索で最新情報を調べる
 - 現在の日付・時刻を確認する
+- iCloud カレンダーの予定を確認・追加・変更・削除する（下の「iCloud カレンダーの設定」を参照）
 - 自動記憶：会話はすべて `data/logs/pending.jsonl` に記録され、1時間に1回 Claude Code デスクトップアプリのスケジュールタスク（Claude Pro などのサブスクリプション）で分析・分類して、長期記憶の Markdown 文書に整理します。整理に API 料金はかかりません（下の「自動記憶の設定」を参照）
   - 文書は話題ごとに分かれます（タスク・ユーザーの人格・朝会/夕会のアジェンダ・資産管理・健康管理・目標管理など）。構成は固定ではなく、会話の内容に合わせて整理のたびに新設・統合・改名されます
   - `data/memory/*.md`：会話を始めるたびに全文を読み込む文書（合計の目安は `JARVIS_MEMORY_BUDGET` 字）
@@ -50,6 +51,18 @@ data/memory・data/archive の中身と data/logs の .jsonl ファイルは直�
 - 結果は `data/logs/organize.log` に記録されます。失敗したログは消さずに、次回もう一度整理します
 - 整理済みのログは `data/archive/logs/2026-10.jsonl` のように月ごとに保管されます（Jarvis は頼まれない限り読みません）
 - 今すぐ整理したいときは、タスクの詳細画面で **Run now**
+
+## iCloud カレンダーの設定
+
+1. https://account.apple.com の「サインインとセキュリティ」→「アプリ用パスワード」で App 用パスワードを発行する（Apple ID の 2 ファクタ認証が必要です）
+2. `jarvis-calendar-setup.bat` を実行して Apple ID と App 用パスワードを入力する。接続を確かめてから Windows の資格情報マネージャーに保存します（`.env` や OneDrive には置きません）
+3. Jarvis を起動し直す
+
+- 「来週の予定は？」「金曜15時に歯医者を入れて」「歯医者を16時にずらして」のように頼めます
+- 追加はすぐ実行します。変更と削除は内容を伝えて確認し、次の発言で了承してから実行します
+- 繰り返し予定と参加者のいる予定は読み取りのみです（全回分の変更や、相手への通知を防ぐため）。カレンダーアプリで操作してください
+- 試すときは `.env` の `JARVIS_ICLOUD_CALENDAR` にテスト用カレンダーの名前を入れると、そのカレンダーだけを読み書きします
+- やめるときは Windows の「資格情報マネージャー」で `Jarvis-iCloud` を削除し、Apple ID の管理画面で App 用パスワードを取り消してください
 
 ## 起動
 
@@ -107,6 +120,7 @@ data/memory・data/archive の中身と data/logs の .jsonl ファイルは直�
 | `JARVIS_USER_NAME` | なし | あなたの呼び名 |
 | `JARVIS_AUTO_MEMORY` | `on` | 会話をログに記録して自動で記憶するか（`off` で無効） |
 | `JARVIS_MEMORY_BUDGET` | `8000` | 毎回読み込む記憶の文書（`data/memory/*.md`）の合計文字数の目安。整理役はこの範囲に収め、はみ出す細部は資料に移します |
+| `JARVIS_ICLOUD_CALENDAR` | なし | 指定すると、この名前の iCloud カレンダーだけを読み書きする。なしならすべてを読み、追加は最初のカレンダーか指定されたカレンダーへ |
 | `JARVIS_PORT` | `8765` | GUI 版が使うポート番号 |
 | `JARVIS_WAKEWORD` | `on` | 「Hey Jarvis」検知を起動時に有効にするか（`off` で無効） |
 | `JARVIS_WAKEWORD_THRESHOLD` | `0.5` | 検知の厳しさ（0〜1）。上げると誤反応が減り、下げると反応しやすくなる |
@@ -128,7 +142,8 @@ data/memory・data/archive の中身と data/logs の .jsonl ファイルは直�
 ## ファイル構成
 
 - `jarvis/assistant.py` — Claude API との会話とツール実行（共通部分）
-- `jarvis/tools.py` — ツール（時刻・記憶・画面表示）と Web 検索の定義
+- `jarvis/tools.py` — ツール（記憶・画面表示）と Web 検索の定義
+- `jarvis/icloud.py` — iCloud カレンダーの読み書きと資格情報の登録（`jarvis-calendar-setup.bat` から実行）
 - `jarvis/memory.py` — 長期記憶の文書・未整理ログ・保管庫の読み書き
 - `jarvis/memorizer.py` — 会話ログの記録と、整理（分析・分類）の指示づくりと結果の反映
 - `organize.pyw` — スケジュールタスクが使う整理用コマンド（`prepare` / `apply`）
