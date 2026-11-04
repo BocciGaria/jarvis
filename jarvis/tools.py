@@ -1,23 +1,16 @@
-"""Jarvis が使えるローカルツール（時刻・メモ帳・画面表示）。"""
+"""Jarvis が使えるローカルツール（時刻・記憶・画面表示）。"""
 
 import json
 import ssl
-import threading
 import urllib.error
 import urllib.request
 from datetime import datetime
 from html.parser import HTMLParser
-from pathlib import Path
 from urllib.parse import urljoin
 
 import certifi
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-MEMORY_FILE = DATA_DIR / "memory.json"
-CONVERSATIONS_FILE = DATA_DIR / "conversations.json"
-
-# 会話中のツール実行と、裏で動く自動記憶（memorizer）が同時にファイルを書き換えないようにする
-MEMORY_LOCK = threading.RLock()
+from jarvis.memory import doc_title, load_docs, log_request, read_doc, search_archive
 
 # Claude に渡すローカルツール定義。Web 検索（Anthropic 側で実行）は tools_for() で追加する。
 TOOLS = [
@@ -29,28 +22,54 @@ TOOLS = [
     },
     {
         "name": "save_memory",
-        "description": "ユーザーについて覚えておくべき情報（好み、予定、名前など）を長期メモに保存する。",
+        "description": (
+            "ユーザーに「覚えておいて」とはっきり頼まれた内容を、すぐに記憶に残す（次の整理で適切な文書に反映される）。"
+            "会話は自動で記録・整理されるため、頼まれていないときは使わず、保存するかどうかをユーザーに尋ねることもしない。"
+        ),
         "eager_input_streaming": True,
         "input_schema": {
             "type": "object",
-            "properties": {"note": {"type": "string", "description": "保存する内容"}},
+            "properties": {"note": {"type": "string", "description": "覚えておく内容"}},
             "required": ["note"],
         },
     },
     {
+        "name": "forget_memory",
+        "description": "ユーザーに「忘れて」と頼まれた内容を、記憶のすべての文書から消すよう依頼する（次の整理で反映される）。",
+        "eager_input_streaming": True,
+        "input_schema": {
+            "type": "object",
+            "properties": {"what": {"type": "string", "description": "忘れる内容"}},
+            "required": ["what"],
+        },
+    },
+    {
         "name": "list_memories",
-        "description": "長期メモに保存されている内容を番号付きで一覧する。",
+        "description": "記憶の文書と資料の一覧（パスと見出し）を最新の状態で取得する。",
         "eager_input_streaming": True,
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
-        "name": "delete_memory",
-        "description": "長期メモから指定番号（list_memories の番号）の項目を削除する。",
+        "name": "read_memory",
+        "description": "記憶の文書や資料（reference/〇〇.md）を最新の内容で読む。目次にある資料の中身が必要なときに使う。",
         "eager_input_streaming": True,
         "input_schema": {
             "type": "object",
-            "properties": {"index": {"type": "integer", "description": "削除する番号（1始まり）"}},
-            "required": ["index"],
+            "properties": {"path": {"type": "string", "description": "文書のパス（例: タスク.md, reference/完了したタスク.md）"}},
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "search_archive",
+        "description": (
+            "整理済みの過去の会話ログをキーワードで探す。ユーザーに以前の会話そのものを確かめるよう頼まれたときや、"
+            "記憶の文書にない細部が必要なときだけ使う。"
+        ),
+        "eager_input_streaming": True,
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "探す語（空白区切りで、すべてを含むものを探す）"}},
+            "required": ["query"],
         },
     },
     {
@@ -110,76 +129,14 @@ def tools_for(model: str, handoff: bool = False) -> list:
     return TOOLS + extra + [{"type": search_type, "name": "web_search", "max_uses": 5}]
 
 
-def _load_json(path: Path) -> list:
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError):
-        return []
-
-
-def _save_json(path: Path, data: list) -> None:
-    DATA_DIR.mkdir(exist_ok=True)
-    tmp = path.with_suffix(".tmp")  # 書き込み途中で落ちても元のファイルが壊れないように
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
-
-
-def load_memories() -> list[str]:
-    return _load_json(MEMORY_FILE)
-
-
-def _save_memories(memories: list[str]) -> None:
-    _save_json(MEMORY_FILE, memories)
-
-
-def apply_memory_changes(add: list[str], update: list[dict]) -> None:
-    """自動記憶の結果を反映する。update は {"index": 1始まりの番号, "note": 新しい内容}。"""
-    with MEMORY_LOCK:
-        memories = load_memories()
-        for item in update:
-            if 1 <= item["index"] <= len(memories) and item["note"].strip():
-                memories[item["index"] - 1] = item["note"].strip()
-        for note in add:
-            if note.strip() and note.strip() not in memories:
-                memories.append(note.strip())
-        _save_memories(memories)
-
-
-def load_conversations() -> list[dict]:
-    """過去の会話の要約（古い順）。各要素は {"id", "started", "updated", "summary"}。"""
-    return _load_json(CONVERSATIONS_FILE)
-
-
-def save_conversation_summary(session_id: str, started: str, summary: str) -> None:
-    """セッションの要約を上書き保存する（なければ追加）。"""
-    with MEMORY_LOCK:
-        conversations = load_conversations()
-        record = {
-            "id": session_id,
-            "started": started,
-            "updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "summary": summary.strip(),
-        }
-        for i, c in enumerate(conversations):
-            if c.get("id") == session_id:
-                conversations[i] = record
-                break
-        else:
-            conversations.append(record)
-        _save_json(CONVERSATIONS_FILE, conversations)
-
-
 def _validate(name: str, args) -> str | None:
     """ストリーミング時の部分パースに備え、入力の形を確認する。問題があればエラー文を返す。"""
     if not isinstance(args, dict):
         return "入力がオブジェクトではありません"
-    if name == "save_memory" and not (isinstance(args.get("note"), str) and args["note"].strip()):
-        return "note（文字列）が必要です"
-    if name == "delete_memory" and not isinstance(args.get("index"), int):
-        return "index（整数）が必要です"
+    required = {"save_memory": "note", "forget_memory": "what", "read_memory": "path", "search_archive": "query"}
+    key = required.get(name)
+    if key and not (isinstance(args.get(key), str) and args[key].strip()):
+        return f"{key}（文字列）が必要です"
     if name == "show_display":
         if not (isinstance(args.get("title"), str) and args["title"].strip()):
             return "title（文字列）が必要です"
@@ -289,27 +246,31 @@ def run_tool(name: str, args) -> tuple[str, bool]:
         return now.strftime(f"%Y年%m月%d日（{weekdays[now.weekday()]}） %H:%M:%S %Z"), False
 
     if name == "save_memory":
-        with MEMORY_LOCK:
-            memories = load_memories()
-            memories.append(args["note"].strip())
-            _save_memories(memories)
-        return f"保存しました（{len(memories)}件目）", False
+        log_request("note", args["note"])
+        return "記憶しました（次の整理で適切な文書に反映されます）", False
+
+    if name == "forget_memory":
+        log_request("forget", args["what"])
+        return "忘れるよう記録しました（次の整理ですべての文書から消されます）", False
 
     if name == "list_memories":
-        memories = load_memories()
-        if not memories:
-            return "メモはまだありません", False
-        return "\n".join(f"{i}. {m}" for i, m in enumerate(memories, 1)), False
+        docs = load_docs() | load_docs(reference=True)
+        if not docs:
+            return "記憶の文書はまだありません", False
+        return "\n".join(f"- {path}: {doc_title(content)}" for path, content in docs.items()), False
 
-    if name == "delete_memory":
-        with MEMORY_LOCK:
-            memories = load_memories()
-            index = args["index"]
-            if not 1 <= index <= len(memories):
-                return f"番号 {index} は存在しません（1〜{len(memories)}）", True
-            removed = memories.pop(index - 1)
-            _save_memories(memories)
-        return f"削除しました: {removed}", False
+    if name == "read_memory":
+        try:
+            content = read_doc(args["path"])
+        except ValueError as e:
+            return str(e), True
+        if content is None:
+            return f"{args['path']} はありません。list_memories で一覧を確認してください", True
+        return content, False
+
+    if name == "search_archive":
+        found = search_archive(args["query"])
+        return "\n\n".join(found) if found else f"「{args['query']}」を含む過去の会話は見つかりませんでした", False
 
     if name == "show_display":
         output, is_error, _ = run_display(args)

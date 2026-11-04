@@ -6,7 +6,8 @@ from collections.abc import Iterator
 import anthropic
 from dotenv import load_dotenv
 
-from jarvis.tools import load_conversations, load_memories, run_display, run_tool, tools_for
+from jarvis.memory import memory_context
+from jarvis.tools import run_display, run_tool, tools_for
 
 load_dotenv()
 
@@ -18,7 +19,7 @@ ROUTING = bool(SMART_MODEL) and SMART_MODEL != MODEL
 MODEL_LABEL = f"{MODEL} → {SMART_MODEL}" if ROUTING else MODEL
 EFFORT = os.getenv("JARVIS_EFFORT", "low")  # low | medium | high | xhigh | max
 USER_NAME = os.getenv("JARVIS_USER_NAME", "")
-RECALL_CONVERSATIONS = int(os.getenv("JARVIS_RECALL_CONVERSATIONS", "5"))  # 思い出す過去の会話の数
+USAGE_FIELDS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens")
 
 
 def _request_params(model: str, handoff: bool) -> dict:
@@ -38,8 +39,10 @@ SYSTEM_PROMPT = """あなたは「Jarvis（ジャーヴィス）」、ユーザ�
 - 基本は日本語で、丁寧かつ簡潔に話します。少しだけウィットを効かせても構いません。
 - 最新情報や事実確認が必要なときは web_search を使います。
 - 日付や時刻が関わる質問では get_current_time で現在時刻を確認します。
-- 会話の内容は自動的に記録され、定期的に長期メモと会話の要約に整理されます。ユーザーにはっきり「覚えておいて」と頼まれたときだけ save_memory で即座に保存します。
-- 長期メモや過去の会話の要約にある内容は、自然に踏まえて話します。
+- 会話はすべて自動で記録され、大事なことは裏で分析・分類されて長期記憶の文書（タスク・ユーザーの人格・朝会と夕会のアジェンダなど）に整理されます。なので、あなたが記憶について気を回す必要はありません。「記録しますか」「メモに残しましょうか」「覚えておきましょうか」などと尋ねたり提案したりせず、記録や保存の仕組みにも触れずに、信頼できる相棒として自然に会話を続けます。
+- save_memory は、ユーザーにはっきり「覚えておいて」と頼まれたときだけ使います。そのときも「承知しました」程度に軽く受け止めます。「忘れて」と頼まれたら forget_memory を使います。
+- 長期記憶の文書にある内容は、ユーザーをよく知る相棒として自然に踏まえて話します。目次にある資料の中身が必要なときは read_memory で開きます。
+- 以前の会話そのものを確かめてほしいと頼まれたときや、記憶にない細部が必要なときだけ、search_archive で過去の会話ログを探します。
 - 朝会と夕会は、ユーザーが「朝会を終わろう」「夕会を終わろう」などとはっきり締めを指示するまで続けます。やりとりが短く続いても、確認する項目が一通り済んでも、時間の目安を過ぎても、あなたの判断では締めません。指示があるまでは「ここまでにします」「お疲れさまでした」「また明日」のような締めの言葉を言いません。話すことが尽きたように見えたら「ほかにありますか」と一言聞いて待ちます。
 - 分からないことは推測で断定せず、分からないと伝えます。
 - 返答は音声で読み上げられます。Markdownの装飾や長い箇条書きは避け、話し言葉として自然な短めの文章にします。
@@ -48,19 +51,13 @@ SYSTEM_PROMPT = """あなたは「Jarvis（ジャーヴィス）」、ユーザ�
 
 
 def build_system() -> str:
-    """システムプロンプトに長期メモを添える（会話開始・リセット時に固定し、キャッシュを保つ）。"""
+    """システムプロンプトに長期記憶を添える（会話開始・リセット時に固定し、キャッシュを保つ）。"""
     parts = [SYSTEM_PROMPT]
     if USER_NAME:
         parts.append(f"ユーザーの名前: {USER_NAME}")
-    memories = load_memories()
-    if memories:
-        parts.append("ユーザーについての長期メモ:\n" + "\n".join(f"- {m}" for m in memories))
-    conversations = load_conversations()[-RECALL_CONVERSATIONS:] if RECALL_CONVERSATIONS > 0 else []
-    if conversations:
-        parts.append(
-            "最近の会話の要約（古い順）:\n"
-            + "\n".join(f"- {c.get('started', '')}: {c.get('summary', '')}" for c in conversations)
-        )
+    memory = memory_context()
+    if memory:
+        parts.append("# 長期記憶\n" + memory)
     return "\n\n".join(parts)
 
 
@@ -98,7 +95,7 @@ class Assistant:
         self.system = build_system()  # 新しく保存・整理されたメモや会話の要約も反映
 
     def chat(self, user_input: str) -> Iterator[dict]:
-        """応答を {"type": "text"|"tool"|"display"|"notice", ...} のイベントとして yield する。
+        """応答を {"type": "text"|"tool"|"display"|"notice"|"usage", ...} のイベントとして yield する。
         失敗・中断時は会話履歴を直前の完了状態に戻してから例外を送出する。"""
         turn_start = len(self.messages)
         self.messages.append({"role": "user", "content": user_input})
@@ -131,6 +128,7 @@ class Assistant:
     def _respond(self, turn_start: int) -> Iterator[dict]:
         json_retries = 0
         params = BASIC_PARAMS
+        usage = dict.fromkeys(USAGE_FIELDS, 0)  # このターンで消費したトークン（API 呼び出しごとに加算）
         while True:
             try:
                 with self.client.beta.messages.stream(
@@ -145,6 +143,9 @@ class Assistant:
                             yield {"type": "text", "text": event.text}
                     response = stream.get_final_message()
                 json_retries = 0
+                for field in USAGE_FIELDS:
+                    usage[field] += getattr(response.usage, field, None) or 0
+                yield {"type": "usage", **usage, "total": sum(usage.values())}
             except ValueError:
                 # ツール入力の JSON が全く解析できなかった。同じターンを再送する（回数制限あり）。
                 json_retries += 1

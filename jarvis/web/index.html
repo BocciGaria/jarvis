@@ -163,6 +163,10 @@
   dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
   dialog h2 { margin: 0 0 10px; font-size: 15px; color: var(--accent); letter-spacing: .1em; }
   dialog ol { padding-left: 1.4em; line-height: 1.8; max-height: 50vh; overflow: auto; }
+  #memoryBody { max-height: 60vh; overflow: auto; }
+  #memoryBody summary { cursor: pointer; padding: 6px 0; color: var(--accent); }
+  #memoryBody .doc { white-space: pre-wrap; line-height: 1.7; padding: 0 0 10px 1em; font-size: 13px; }
+  #memoryBody .doc-h1 { font-size: 15px; }
   @media (prefers-reduced-motion: reduce) { .panel > * { animation: none; } .panel .scan { display: none; } }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
@@ -210,9 +214,9 @@
 </footer>
 
 <dialog id="memoryDialog">
-  <h2>長期メモ</h2>
+  <h2>長期記憶</h2>
   <div id="memoryBody"></div>
-  <p class="hint" style="text-align:left">消したいときは「◯番のメモを消して」と話しかけてください。</p>
+  <p class="hint" style="text-align:left">忘れてほしいことは「〜を忘れて」と話しかけてください。</p>
   <form method="dialog" style="text-align:right"><button class="btn-ghost">閉じる</button></form>
 </dialog>
 
@@ -477,7 +481,7 @@ function addError(text) {
 }
 function scrollDown() { logEl.scrollTop = logEl.scrollHeight; }
 
-const TOOL_LABEL = { web_search: "🔍 Web で検索中", get_current_time: "🕒 時刻を確認", save_memory: "📝 メモに保存", list_memories: "📒 メモを確認", delete_memory: "🗑 メモを削除", show_display: "🖼 画面に表示", use_smart_model: "🧠 上位モデルで考え中" };
+const TOOL_LABEL = { web_search: "🔍 Web で検索中", get_current_time: "🕒 時刻を確認", save_memory: "📝 記憶しています", forget_memory: "🗑 忘れています", list_memories: "📒 記憶を確認", read_memory: "📒 記憶を確認", search_archive: "🗂 過去の会話を検索", show_display: "🖼 画面に表示", use_smart_model: "🧠 上位モデルで考え中" };
 
 // ---------- 表示パネル（リアクターから出現し、閉じるとリアクターへ戻る） ----------
 const holo = $("holo");
@@ -634,6 +638,7 @@ async function send(text) {
   let raw = "", extras = "";
   const paint = () => { bubble.innerHTML = extras + renderText(raw); scrollDown(); };
   setBusy(true); setState("thinking"); speechBuffer = "";
+  tokenTarget = 0;  // 消費トークンの表示は返答ごとに数え直す
 
   try {
     const res = await fetch("/api/chat", {
@@ -669,6 +674,8 @@ async function send(text) {
           showPanel(ev);
           extras += `<span class="chip">🖼 ${escapeHtml(ev.title)}</span><br>`;
           paint();
+        } else if (ev.type === "usage") {
+          tokenTarget = ev.total;
         } else if (ev.type === "notice") {
           raw +=(raw ? "\n" : "") + "［" + ev.text + "］"; paint();
         } else if (ev.type === "error") {
@@ -774,15 +781,23 @@ events.onmessage = (e) => {
 initWake();
 
 // ---------- メモ・リセット ----------
+const REQUEST_LABEL = { note: "覚えておいて", forget: "忘れて" };
+function renderDoc(s) {
+  return renderBody(s).replace(/^(#{1,4})\s+(.+)$/gm, (_, h, t) => `<strong class="doc-h${h.length}">${t}</strong>`);
+}
 $("memoryBtn").onclick = async () => {
   const body = $("memoryBody");
   try {
     const res = await fetch("/api/memory", { headers: { "X-Jarvis-Token": TOKEN } });
-    const { memories } = await res.json();
-    body.innerHTML = memories.length
-      ? "<ol>" + memories.map(m => `<li>${escapeHtml(m)}</li>`).join("") + "</ol>"
-      : '<p class="hint" style="text-align:left">まだ何も保存されていません。「〜を覚えておいて」と話しかけると保存されます。</p>';
-  } catch { body.textContent = "メモを読み込めませんでした。"; }
+    const { documents, requests } = await res.json();
+    const docs = Object.entries(documents).map(([path, content], i) =>
+      `<details${i === 0 ? " open" : ""}><summary>${escapeHtml(path)}</summary><div class="doc">${renderDoc(content)}</div></details>`);
+    if (requests.length) docs.push(
+      "<details><summary>整理待ちの依頼</summary><div class=\"doc\">" +
+      requests.map(r => `• [${escapeHtml(r.time)}] ${REQUEST_LABEL[r.kind]}: ${escapeHtml(r.text)}`).join("\n") + "</div></details>");
+    body.innerHTML = docs.length ? docs.join("")
+      : '<p class="hint" style="text-align:left">まだ何も記憶していません。会話の内容は自動で整理され、ここに文書として並びます。</p>';
+  } catch { body.textContent = "記憶を読み込めませんでした。"; }
   $("memoryDialog").showModal();
 };
 $("resetBtn").onclick = async () => {
@@ -790,6 +805,7 @@ $("resetBtn").onclick = async () => {
   stopSpeaking(); stopListening();
   await fetch("/api/reset", { method: "POST", headers: { "X-Jarvis-Token": TOKEN } }).catch(() => {});
   logEl.innerHTML = '<div class="log-empty">会話をリセットしました。</div>';
+  tokenTarget = 0;
   closeAllPanels();
   setState("idle", "会話をリセットしました");
   setTimeout(() => { if (state === "idle") setState("idle"); }, 2500);
@@ -825,6 +841,19 @@ function radialTicks(count, r0, r1, pick = () => true) {
 const OUTER_MINOR = radialTicks(180, 240, 245, i => i % 5 !== 0);
 const OUTER_MAJOR = radialTicks(180, i => i % 15 === 0 ? 233 : 237, 245, i => i % 5 === 0);
 const INNER_TICKS = radialTicks(72, i => i % 6 === 0 ? 132 : 135, 140);
+
+// 返答ごとの消費トークン：外周の目盛りを真上から時計回りに点灯させ、1周を超えたら次の周を重ねる
+const TOKENS_PER_LAP = 10000;
+// 消費量に応じて色を連続的に変える（[トークン数, R, G, B]。間は直線補間し、最後の色より先はそのまま）
+const TOKEN_COLORS = [[0, 79, 214, 255], [10000, 80, 255, 170], [20000, 255, 225, 80], [30000, 255, 140, 50], [40000, 255, 55, 70]];
+let tokenTarget = 0, tokenShown = 0;
+function tokenColor(n, a) {
+  const k = TOKEN_COLORS.findIndex(c => c[0] > n);
+  const [p, q] = k < 0 ? [TOKEN_COLORS.at(-1), TOKEN_COLORS.at(-1)] : [TOKEN_COLORS[k - 1], TOKEN_COLORS[k]];
+  const f = q[0] > p[0] ? (n - p[0]) / (q[0] - p[0]) : 0;
+  const mix = (j) => Math.round(p[j] + (q[j] - p[j]) * f);
+  return `rgba(${mix(1)}, ${mix(2)}, ${mix(3)}, ${Math.max(0, a)})`;
+}
 
 // パネルを出すときの演出：リアクターが光り、衝撃波と火花が広がる
 function burst() {
@@ -881,13 +910,14 @@ function drawSweep(e) {
 
 function drawOuterScale(e, pace) {
   ctx.lineWidth = 1; ctx.strokeStyle = C(0.2 + e * 0.15); circle(250); ctx.stroke();
-  // ゆっくり回る目盛りと角度の数字
-  ctx.save(); ctx.rotate(spin * 0.04);
+  // 目盛りと角度の数字（消費トークンの表示に使うので 000 を真上に固定）
+  ctx.save(); ctx.rotate(-Math.PI / 2);
   ctx.lineWidth = 1; ctx.strokeStyle = C(0.22 + e * 0.2); ctx.stroke(OUTER_MINOR);
   ctx.lineWidth = 1.3; ctx.strokeStyle = C(0.5 + e * 0.35); ctx.stroke(OUTER_MAJOR);
   ctx.fillStyle = C(0.45 + e * 0.3); ctx.font = "7px Consolas, monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (let i = 0; i < 12; i++) {
+    if (i === 6 && tokenShown >= 1) continue;  // 真下は消費トークンの数字に譲る
     ctx.save(); ctx.rotate(i / 12 * TAU); ctx.translate(225, 0); ctx.rotate(Math.PI / 2);
     ctx.fillText(String(i * 30).padStart(3, "0"), 0, 0); ctx.restore();
   }
@@ -910,6 +940,31 @@ function drawOuterScale(e, pace) {
     ctx.fillStyle = HI(0.08 + 0.35 * (0.5 + 0.5 * Math.sin(t * 3 + d.p)));
     ctx.fillRect(x - 0.7, y - 0.7, 1.4, 1.4);
   }
+}
+
+function drawTokenGauge(e) {
+  const T = tokenShown;
+  if (T < 1) return;
+  const laps = Math.floor(T / TOKENS_PER_LAP), rest = T - laps * TOKENS_PER_LAP, step = TOKENS_PER_LAP / 180;
+  for (let i = 0; i < 180; i++) {
+    // この目盛りが表す量。今の周で届いていなければ、ひとつ前の周の分を少し暗く出す
+    const lap = i * step < rest ? laps : laps - 1;
+    if (lap < 0) break;
+    const a = i / 180 * TAU - Math.PI / 2, major = i % 5 === 0;
+    ctx.lineWidth = major ? 2 : 1.6;
+    ctx.strokeStyle = tokenColor(lap * TOKENS_PER_LAP + (i + 1) * step, (lap === laps ? 0.75 : 0.4) + e * 0.2);
+    ctx.beginPath(); ctx.moveTo(...polar(a, major ? 235 : 239)); ctx.lineTo(...polar(a, 246)); ctx.stroke();
+  }
+  // 先端の光と数字
+  const a = rest / TOKENS_PER_LAP * TAU - Math.PI / 2;
+  ctx.lineWidth = 2.5; ctx.strokeStyle = HI(0.9);
+  ctx.beginPath(); ctx.moveTo(...polar(a, 231)); ctx.lineTo(...polar(a, 250)); ctx.stroke();
+  const [x, y] = polar(a, 240), g = ctx.createRadialGradient(x, y, 0, x, y, 9);
+  g.addColorStop(0, tokenColor(T, 0.9)); g.addColorStop(1, tokenColor(T, 0));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 9, 0, TAU); ctx.fill();
+  ctx.fillStyle = tokenColor(T, 0.95); ctx.font = "8px Consolas, monospace";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText((T / 1000).toFixed(1) + "k TOKENS", 0, 225);
 }
 
 function drawSpectrum(e) {
@@ -1087,6 +1142,8 @@ function drawOrb(now) {
   energy += (target + flash * 0.6 - energy) * Math.min(1, 0.15 * dt);
   flash *= 0.94 ** dt;
   updateBands();
+  tokenShown += (tokenTarget - tokenShown) * Math.min(1, 0.06 * dt);
+  if (Math.abs(tokenTarget - tokenShown) < 1) tokenShown = tokenTarget;
 
   const W = canvas.width;
   if (!W) return;
@@ -1099,6 +1156,7 @@ function drawOrb(now) {
   drawBackdrop(e);
   drawSweep(e);
   drawOuterScale(e, pace);
+  drawTokenGauge(e);
   drawSpectrum(e);
   drawHeavyArcs(e);
   drawOrbiters(e);

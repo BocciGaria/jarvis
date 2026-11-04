@@ -9,8 +9,13 @@ Claude API（普段の会話は Claude Haiku 5.5、込み入った依頼は Clau
 - 音声入力と音声での返答（GUI 版）
 - Web 検索で最新情報を調べる
 - 現在の日付・時刻を確認する
-- 長期メモ：「〜を覚えておいて」と言うと `data/memory.json` に保存され、次回以降も使われます
-- 自動記憶：頼まなくても会話を `data/logs/pending.jsonl` に記録し、1時間に1回 Claude Code デスクトップアプリのスケジュールタスク（Claude Pro などのサブスクリプション）で整理して、好み・予定・決めたことなどを長期メモに追加・更新します。会話ごとの要約も `data/conversations.json` に残り、次回起動時（またはリセット後）は直近の会話を覚えた状態で始まります。整理に API 料金はかかりません（下の「自動記憶の設定」を参照）
+- 自動記憶：会話はすべて `data/logs/pending.jsonl` に記録され、1時間に1回 Claude Code デスクトップアプリのスケジュールタスク（Claude Pro などのサブスクリプション）で分析・分類して、長期記憶の Markdown 文書に整理します。整理に API 料金はかかりません（下の「自動記憶の設定」を参照）
+  - 文書は話題ごとに分かれます（タスク・ユーザーの人格・朝会/夕会のアジェンダ・資産管理・健康管理・目標管理など）。構成は固定ではなく、会話の内容に合わせて整理のたびに新設・統合・改名されます
+  - `data/memory/*.md`：会話を始めるたびに全文を読み込む文書（合計の目安は `JARVIS_MEMORY_BUDGET` 字）
+  - `data/memory/reference/*.md`：普段は読み込まず、必要なときだけ Jarvis が開く資料（完了したタスクの記録など）
+  - 整理が終わった会話ログは `data/archive/logs/` に移り、「前に話した〜を調べて」と頼んだときだけ検索されます
+  - 整理で書き換える前の記憶は `data/archive/memory-backups/` に残ります（直近30回分）
+- 「〜を覚えておいて」「〜を忘れて」と頼むと、すぐに反映され、次の整理で文書にも反映されます
 
 ## 初回セットアップ
 
@@ -32,18 +37,18 @@ Claude Code デスクトップアプリの「スケジュールタスク」（�
 タスクの指示：
 
 ```
-Jarvis の会話ログを整理して、長期メモと会話の要約を更新してください。
+Jarvis の会話ログを分析・分類して、長期記憶の文書を更新してください。
 1. `.venv/Scripts/python.exe organize.pyw prepare` を実行する。「整理する会話はありません」と出たら、何もせずに終了する。
 2. 表示された指示とルールに従って結果の JSON を作り、Write ツールで `data/logs/result.json` に UTF-8 で書き込む（シェルのリダイレクトは文字化けするので使わない）。
 3. `.venv/Scripts/python.exe organize.pyw apply data/logs/result.json` を実行し、表示された結果を一言で報告する。
    形式エラーが出たら JSON を直して、もう一度 apply する。「失敗しました」と出て直せないときは、そのまま理由を報告して終了する（ログは残り、次回もう一度整理される）。
-data/memory.json・data/conversations.json・data/logs の .jsonl ファイルは直接編集しないこと。
+data/memory・data/archive の中身と data/logs の .jsonl ファイルは直接編集しないこと（記憶の書き換えは apply で行う）。
 ```
 
 - アプリが起動していて PC が起きている間だけ動きます。スリープ中に飛ばされた分は、次の実行でまとめて整理されます
 - 整理の分は Claude Pro の利用枠を使います（`.env` の API キーは使いません）
 - 結果は `data/logs/organize.log` に記録されます。失敗したログは消さずに、次回もう一度整理します
-- 整理済みのログは `data/logs/2026-10.jsonl` のように月ごとに残ります
+- 整理済みのログは `data/archive/logs/2026-10.jsonl` のように月ごとに保管されます（Jarvis は頼まれない限り読みません）
 - 今すぐ整理したいときは、タスクの詳細画面で **Run now**
 
 ## 起動
@@ -87,8 +92,7 @@ data/memory.json・data/conversations.json・data/logs の .jsonl ファイル�
 | コマンド | 内容 |
 |---|---|
 | `/reset` | 会話履歴をリセット（新しいメモも反映） |
-| `/memory` | 保存されたメモを表示 |
-| `/history` | 過去の会話の要約を表示 |
+| `/memory` | 長期記憶の文書を表示 |
 | `/record` | 会話の記録のオン・オフを切り替え |
 | `/help` | ヘルプ |
 | `/exit` | 終了 |
@@ -102,7 +106,7 @@ data/memory.json・data/conversations.json・data/logs の .jsonl ファイル�
 | `JARVIS_EFFORT` | `low` | 考える深さ（`low` / `medium` / `high` / `xhigh` / `max`）。低いほど速く安い |
 | `JARVIS_USER_NAME` | なし | あなたの呼び名 |
 | `JARVIS_AUTO_MEMORY` | `on` | 会話をログに記録して自動で記憶するか（`off` で無効） |
-| `JARVIS_RECALL_CONVERSATIONS` | `5` | 会話開始時に思い出す過去の会話の数（`0` で無効） |
+| `JARVIS_MEMORY_BUDGET` | `8000` | 毎回読み込む記憶の文書（`data/memory/*.md`）の合計文字数の目安。整理役はこの範囲に収め、はみ出す細部は資料に移します |
 | `JARVIS_PORT` | `8765` | GUI 版が使うポート番号 |
 | `JARVIS_WAKEWORD` | `on` | 「Hey Jarvis」検知を起動時に有効にするか（`off` で無効） |
 | `JARVIS_WAKEWORD_THRESHOLD` | `0.5` | 検知の厳しさ（0〜1）。上げると誤反応が減り、下げると反応しやすくなる |
@@ -124,8 +128,9 @@ data/memory.json・data/conversations.json・data/logs の .jsonl ファイル�
 ## ファイル構成
 
 - `jarvis/assistant.py` — Claude API との会話とツール実行（共通部分）
-- `jarvis/tools.py` — ツール（時刻・メモ）と Web 検索の定義
-- `jarvis/memorizer.py` — 会話ログの記録と、整理結果の反映（自動記憶・会話の要約）
+- `jarvis/tools.py` — ツール（時刻・記憶・画面表示）と Web 検索の定義
+- `jarvis/memory.py` — 長期記憶の文書・未整理ログ・保管庫の読み書き
+- `jarvis/memorizer.py` — 会話ログの記録と、整理（分析・分類）の指示づくりと結果の反映
 - `organize.pyw` — スケジュールタスクが使う整理用コマンド（`prepare` / `apply`）
 - `jarvis/gui.py` — GUI 版のローカルサーバー
 - `jarvis/wakeword.py` — 「Hey Jarvis」の呼びかけ検知

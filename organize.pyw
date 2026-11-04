@@ -1,9 +1,9 @@
 """会話ログの整理（Claude Code デスクトップアプリのスケジュールタスクから1時間に1回使う）。
 
   .venv/Scripts/python.exe organize.pyw prepare
-      未整理のログと整理の指示を表示する（なければ「整理する会話はありません」）
+      未整理のログ・現在の記憶の文書・整理の指示を表示する（なければ「整理する会話はありません」）
   .venv/Scripts/python.exe organize.pyw apply data/logs/result.json
-      Claude が作った結果の JSON を長期メモと会話の要約に反映する
+      Claude が作った結果の JSON を記憶の文書（data/memory）に反映し、整理済みのログを data/archive に移す
 """
 
 import json

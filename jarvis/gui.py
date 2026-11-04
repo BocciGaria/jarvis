@@ -20,7 +20,8 @@ import anthropic
 
 from jarvis.assistant import EFFORT, MODEL_LABEL, Assistant, describe_error
 from jarvis.memorizer import AUTO_MEMORY_ON, LOG_DIR
-from jarvis.tools import fetch_url, load_memories
+from jarvis.memory import load_docs, pending_requests
+from jarvis.tools import fetch_url
 from jarvis.wakeword import WakeWordListener
 
 HOST = "127.0.0.1"
@@ -176,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, (WEB_DIR / "jarvis.ico").read_bytes(), "image/x-icon")
         elif path == "/api/memory":
             if self._authorized():
-                self._json(200, {"memories": load_memories()})
+                self._json(200, {"documents": load_docs() | load_docs(reference=True), "requests": pending_requests()})
         elif path == "/api/wakeword":
             if self._authorized():
                 self._json(200, _wakeword_status())
@@ -400,6 +401,9 @@ def main() -> None:
 
     url = f"http://{HOST}:{PORT}/"
     try:
+        # Windows では SO_REUSEADDR を付けると使用中のポートにも重ねて bind できてしまい、
+        # 古いサーバーが残ったまま二重起動する。付けずに bind し、使用中なら起動済みとして扱う
+        ThreadingHTTPServer.allow_reuse_address = sys.platform != "win32"
         server = ThreadingHTTPServer((HOST, PORT), Handler)
     except OSError:
         if _jarvis_running(url):  # すでに起動している → ウィンドウだけ開く

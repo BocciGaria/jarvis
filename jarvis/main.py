@@ -5,12 +5,11 @@ import sys
 import anthropic
 
 from jarvis.assistant import MODEL_LABEL, Assistant, describe_error
-from jarvis.tools import load_conversations, load_memories
+from jarvis.memory import load_docs
 
 COMMANDS_HELP = """コマンド:
   /reset   会話履歴をリセット
-  /memory  保存されたメモを表示
-  /history 過去の会話の要約を表示
+  /memory  長期記憶の文書を表示
   /record  会話の記録のオン・オフを切り替え
   /help    このヘルプを表示
   /exit    終了（Ctrl+C でも可）"""
@@ -36,10 +35,6 @@ def main() -> None:
         if user_input in ("/exit", "/quit"):
             print("Jarvis: またいつでもお呼びください。")
             break
-        if user_input == "/history":
-            conversations = load_conversations()
-            print("\n".join(f"[{c['started']}] {c['summary']}" for c in conversations) or "会話の記録はまだありません")
-            continue
         if user_input == "/record":
             assistant.record = not assistant.record
             print("会話を記録します。" if assistant.record else "会話を記録しません（オンに戻すまでのやりとりは残りません）。")
@@ -52,8 +47,8 @@ def main() -> None:
             print("会話履歴をリセットしました。")
             continue
         if user_input == "/memory":
-            memories = load_memories()
-            print("\n".join(f"{i}. {m}" for i, m in enumerate(memories, 1)) or "メモはまだありません")
+            docs = load_docs() | load_docs(reference=True)
+            print("\n\n".join(f"── {path}\n{content}" for path, content in docs.items()) or "記憶の文書はまだありません")
             continue
 
         print("\nJarvis > ", end="", flush=True)
