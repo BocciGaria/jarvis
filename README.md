@@ -68,10 +68,22 @@ data/memory・data/archive の中身と data/logs の .jsonl ファイルは直�
 ## Google ToDo リストの設定
 
 1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作り、「API とサービス」→「ライブラリ」で **Google Tasks API** を有効にする
-2. 「Google Auth Platform」でアプリを設定する（対象は「外部」）。「対象」の画面で **本番環境に公開** する。テスト状態のままだと連携が7日で切れます。個人利用なので審査は不要ですが、許可の画面に「確認されていないアプリ」と出ます
-3. 「クライアント」で **デスクトップアプリ** のクライアントを作り、JSON をダウンロードする
-4. `jarvis-todo-setup.bat` を実行して JSON のパスを入力し、ブラウザで許可する。資格情報は Windows の資格情報マネージャーに保存します（`.env` や OneDrive には置きません）。終わったら JSON は削除してかまいません
-5. Jarvis を起動し直す
+2. 「Google Auth Platform」でアプリを作り（対象は「外部」）、「ブランディング」に次の内容を入力して保存する。ロゴと利用規約は空欄のままでかまいません
+
+   | 項目 | 入力する内容 |
+   |---|---|
+   | アプリ名 | `Jarvis` |
+   | ユーザーサポートメール、デベロッパーの連絡先情報 | 自分のメールアドレス |
+   | ホームページ | `https://boccigaria.github.io/jarvis/` |
+   | プライバシーポリシー | `https://boccigaria.github.io/jarvis/#privacy` |
+   | 承認済みドメイン | `boccigaria.github.io` |
+
+3. 「対象」の画面で **アプリを公開** して本番環境にする。テスト状態のままだと連携が7日で切れます。審査は申請せずに使っているため、許可の画面に「確認されていないアプリ」と出ます
+4. 「クライアント」で **デスクトップアプリ** のクライアントを作り、JSON をダウンロードする
+5. `jarvis-todo-setup.bat` を実行して JSON のパスを入力し、ブラウザで許可する。資格情報は Windows の資格情報マネージャーに保存します（`.env` や OneDrive には置きません）。終わったら JSON は削除してかまいません
+6. Jarvis を起動し直す
+
+手順 2 のページは、このリポジトリの `gh-pages` ブランチの `index.html` を GitHub Pages で公開したものです。Jarvis の説明とプライバシーポリシーを変えるときは、このファイルを更新します。
 
 - 「タスクを見せて」「牛乳を買うを追加して」「年末調整を完了にして」のように頼めます。完了はすぐ実行します（Google ToDo リストのアプリで戻せます）
 - 使うのは専用リスト「Jarvis」だけです。ほかのリストは読みも書きもしません
@@ -162,7 +174,7 @@ data/memory・data/archive の中身と data/logs の .jsonl ファイルは直�
 ## ファイル構成
 
 - `jarvis/assistant.py` — Claude API との会話とツール実行（共通部分）
-- `jarvis/tools.py` — ツール（記憶・画面表示）と Web 検索の定義
+- `jarvis/tools.py` — ツール（カレンダー・ToDo・記憶・画面表示）と Web 検索の定義。カレンダーと ToDo の本体はそれぞれ `icloud.py`・`gtasks.py`
 - `jarvis/icloud.py` — iCloud カレンダーの読み書きと資格情報の登録（`jarvis-calendar-setup.bat` から実行）
 - `jarvis/gtasks.py` — Google ToDo リストの操作と同期、資格情報の登録（`jarvis-todo-setup.bat` から実行）
 - `jarvis/memory.py` — 長期記憶の文書・未整理ログ・保管庫の読み書き
