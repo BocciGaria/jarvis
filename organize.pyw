@@ -1,9 +1,9 @@
 """会話ログの整理（Claude Code デスクトップアプリのスケジュールタスクから1時間に1回使う）。
 
   .venv/Scripts/python.exe organize.pyw prepare
-      未整理のログ・現在の記憶の文書・整理の指示を表示する（なければ「整理する会話はありません」）
+      未整理のログ・現在の記憶の文書など整理の材料を表示する（なければ「整理する会話はありません」）
   .venv/Scripts/python.exe organize.pyw apply data/logs/result.json
-      Claude が作った結果の JSON を記憶の文書（data/memory）に反映し、整理済みのログを data/archive に移す
+      Claude がスキル organize-memory のルールで作った結果の JSON を記憶の文書（data/memory）に反映し、整理済みのログを data/archive に移す
 """
 
 import json
@@ -44,8 +44,8 @@ def main() -> None:
 
     if command == "prepare":
         sync(gtasks.pull_and_push)  # スマホで完了にしたものなども今回の整理の材料にする
-        prompt = prepare_batch()
-        print(prompt or "整理する会話はありません")
+        materials = prepare_batch()
+        print(materials or "整理する会話はありません")
     elif command == "apply" and len(sys.argv) > 2:
         result_file = Path(sys.argv[2])
         try:

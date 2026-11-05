@@ -39,13 +39,10 @@ Claude Code デスクトップアプリの「スケジュールタスク」（�
 タスクの指示：
 
 ```
-Jarvis の会話ログを分析・分類して、長期記憶の文書を更新してください。
-1. `.venv/Scripts/python.exe organize.pyw prepare` を実行する（Google ToDo リストからの取り込みもここで行われる）。「整理する会話はありません」と出たら、何もせずに終了する。
-2. 表示された指示とルールに従って、Google ToDo リストと同期する tasks も含めた結果の JSON を作り、Write ツールで `data/logs/result.json` に UTF-8 で書き込む（シェルのリダイレクトは文字化けするので使わない）。
-3. `.venv/Scripts/python.exe organize.pyw apply data/logs/result.json` を実行し（Google ToDo リストへの反映もここで行われる）、表示された整理と同期の結果を一言で報告する。
-   形式エラーが出たら JSON を直して、もう一度 apply する。「失敗しました」と出て直せないときは、そのまま理由を報告して終了する（ログは残り、次回もう一度整理される）。
-data/memory・data/archive の中身と data/logs の .jsonl ファイルは直接編集しないこと（記憶の書き換えは apply で行う）。
+organize-memory スキルを使って、Jarvis の記憶の整理を実行してください。
 ```
+
+整理の手順とルールの正本はスキル [`.claude/skills/organize-memory/SKILL.md`](.claude/skills/organize-memory/SKILL.md) です。記憶の分類のしかたや書き方を変えたいときは、タスクではなくこのファイルを編集します（次回の整理から反映されます）。
 
 - アプリが起動していて PC が起きている間だけ動きます。スリープ中に飛ばされた分は、次の実行でまとめて整理されます
 - 整理の分は Claude Pro の利用枠を使います（`.env` の API キーは使いません）
@@ -178,8 +175,9 @@ data/memory・data/archive の中身と data/logs の .jsonl ファイルは直�
 - `jarvis/icloud.py` — iCloud カレンダーの読み書きと資格情報の登録（`jarvis-calendar-setup.bat` から実行）
 - `jarvis/gtasks.py` — Google ToDo リストの操作と同期、資格情報の登録（`jarvis-todo-setup.bat` から実行）
 - `jarvis/memory.py` — 長期記憶の文書・未整理ログ・保管庫の読み書き
-- `jarvis/memorizer.py` — 会話ログの記録と、整理（分析・分類）の指示づくりと結果の反映
-- `organize.pyw` — スケジュールタスクが使う整理用コマンド（`prepare` / `apply`）
+- `jarvis/memorizer.py` — 会話ログの記録と、整理の材料づくりと結果の反映
+- `.claude/skills/organize-memory/SKILL.md` — 記憶の整理の手順とルール（スケジュールタスクから呼び出すスキル）
+- `organize.pyw` — スキルが使う整理用コマンド（`prepare` / `apply`）
 - `jarvis/gui.py` — GUI 版のローカルサーバー
 - `jarvis/wakeword.py` — 「Hey Jarvis」の呼びかけ検知
 - `jarvis/web/index.html` — GUI 画面（音声入力・読み上げ・アニメーション）
