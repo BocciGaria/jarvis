@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis</title>
+</head>
+<body>
+<h1>Jarvis</h1>
+<p>Jarvis は、BocciGaria が自分のために開発し、自分の Windows PC で利用している個人用の AI アシスタントです。一般には公開しておらず、ほかの方へのサービス提供は行っていません。</p>
+
+<h2>できること</h2>
+<ul>
+  <li>音声または文字による日本語での会話</li>
+  <li>Google ToDo リストのタスクの確認、追加、変更、完了</li>
+  <li>Jarvis が管理するタスクと Google ToDo リストの同期</li>
+  <li>予定の確認や管理、Web 検索、会話内容の整理</li>
+</ul>
+
+<p><a href="#privacy">プライバシーポリシー</a></p>
+
+<h2 id="privacy">プライバシーポリシー</h2>
+<p>施行日: 2026年11月5日</p>
+
+<h3>1. 利用する情報</h3>
+<p>Jarvis は Google Tasks API を通じて、Google ToDo リストのタスクの名前、期限、メモ、状態を読み書きします。操作の対象は、Jarvis が使う専用リスト「Jarvis」のみです。ただし、Google の許可の範囲（<code>https://www.googleapis.com/auth/tasks</code>）自体は、ToDo リスト全体の読み書きを含みます。</p>
+
+<h3>2. 利用の目的</h3>
+<p>取得した情報は、タスクの確認や操作、同期、会話での案内のためにのみ利用します。広告には利用せず、販売もしません。</p>
+
+<h3>3. 情報の保存先</h3>
+<ul>
+  <li>Google の認証情報は、利用者の PC の Windows 資格情報マネージャーに保存します。</li>
+  <li>タスクの内容、同期の状態、会話の記録は、利用者の PC 上のファイルに保存します。保存先のフォルダは Microsoft OneDrive と同期される場合があります。</li>
+</ul>
+
+<h3>4. 第三者への送信</h3>
+<p>Jarvis の機能を提供するため、タスクの内容を含む情報を次のサービスへ送信することがあります。</p>
+<ul>
+  <li>Anthropic（Claude）: 会話への応答と、会話内容の整理のため</li>
+  <li>Microsoft または Google: ブラウザの音声認識を使うときの音声の文字変換のため</li>
+  <li>Microsoft（OneDrive）: 保存先のフォルダを同期するため</li>
+</ul>
+<p>各サービスでの情報の扱いは、それぞれの規約とプライバシーポリシーに従います。</p>
+
+<h3>5. 情報の削除とアクセスの取り消し</h3>
+<p>Google アカウントの「サードパーティ製のアプリとサービス」から、Jarvis のアクセスをいつでも取り消せます。PC 上の認証情報とファイルは、利用者が削除できます。</p>
+
+<h3>6. お問い合わせ</h3>
+<p><a href="https://github.com/BocciGaria/jarvis/issues">GitHub の Issues</a> からご連絡ください。</p>
+</body>
+</html>
