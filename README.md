@@ -10,6 +10,7 @@ Claude API（普段の会話は Claude Haiku 5.5、込み入った依頼は Clau
 - Web 検索で最新情報を調べる
 - 現在の日付・時刻を確認する
 - iCloud カレンダーの予定を確認・追加・変更・削除する（下の「iCloud カレンダーの設定」を参照）
+- Google ToDo リストのタスクを確認・追加・変更・完了にし、Jarvis が管理するタスクと同期する（下の「Google ToDo リストの設定」を参照）
 - 自動記憶：会話はすべて `data/logs/pending.jsonl` に記録され、1時間に1回 Claude Code デスクトップアプリのスケジュールタスク（Claude Pro などのサブスクリプション）で分析・分類して、長期記憶の Markdown 文書に整理します。整理に API 料金はかかりません（下の「自動記憶の設定」を参照）
   - 文書は話題ごとに分かれます（タスク・ユーザーの人格・朝会/夕会のアジェンダ・資産管理・健康管理・目標管理など）。構成は固定ではなく、会話の内容に合わせて整理のたびに新設・統合・改名されます
   - `data/memory/*.md`：会話を始めるたびに全文を読み込む文書（合計の目安は `JARVIS_MEMORY_BUDGET` 字）
@@ -39,9 +40,9 @@ Claude Code デスクトップアプリの「スケジュールタスク」（�
 
 ```
 Jarvis の会話ログを分析・分類して、長期記憶の文書を更新してください。
-1. `.venv/Scripts/python.exe organize.pyw prepare` を実行する。「整理する会話はありません」と出たら、何もせずに終了する。
-2. 表示された指示とルールに従って結果の JSON を作り、Write ツールで `data/logs/result.json` に UTF-8 で書き込む（シェルのリダイレクトは文字化けするので使わない）。
-3. `.venv/Scripts/python.exe organize.pyw apply data/logs/result.json` を実行し、表示された結果を一言で報告する。
+1. `.venv/Scripts/python.exe organize.pyw prepare` を実行する（Google ToDo リストからの取り込みもここで行われる）。「整理する会話はありません」と出たら、何もせずに終了する。
+2. 表示された指示とルールに従って、Google ToDo リストと同期する tasks も含めた結果の JSON を作り、Write ツールで `data/logs/result.json` に UTF-8 で書き込む（シェルのリダイレクトは文字化けするので使わない）。
+3. `.venv/Scripts/python.exe organize.pyw apply data/logs/result.json` を実行し（Google ToDo リストへの反映もここで行われる）、表示された整理と同期の結果を一言で報告する。
    形式エラーが出たら JSON を直して、もう一度 apply する。「失敗しました」と出て直せないときは、そのまま理由を報告して終了する（ログは残り、次回もう一度整理される）。
 data/memory・data/archive の中身と data/logs の .jsonl ファイルは直接編集しないこと（記憶の書き換えは apply で行う）。
 ```
@@ -63,6 +64,25 @@ data/memory・data/archive の中身と data/logs の .jsonl ファイルは直�
 - 繰り返し予定と参加者のいる予定は読み取りのみです（全回分の変更や、相手への通知を防ぐため）。カレンダーアプリで操作してください
 - 試すときは `.env` の `JARVIS_ICLOUD_CALENDAR` にテスト用カレンダーの名前を入れると、そのカレンダーだけを読み書きします
 - やめるときは Windows の「資格情報マネージャー」で `Jarvis-iCloud` を削除し、Apple ID の管理画面で App 用パスワードを取り消してください
+
+## Google ToDo リストの設定
+
+1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作り、「API とサービス」→「ライブラリ」で **Google Tasks API** を有効にする
+2. 「Google Auth Platform」でアプリを設定する（対象は「外部」）。「対象」の画面で **本番環境に公開** する。テスト状態のままだと連携が7日で切れます。個人利用なので審査は不要ですが、許可の画面に「確認されていないアプリ」と出ます
+3. 「クライアント」で **デスクトップアプリ** のクライアントを作り、JSON をダウンロードする
+4. `jarvis-todo-setup.bat` を実行して JSON のパスを入力し、ブラウザで許可する。資格情報は Windows の資格情報マネージャーに保存します（`.env` や OneDrive には置きません）。終わったら JSON は削除してかまいません
+5. Jarvis を起動し直す
+
+- 「タスクを見せて」「牛乳を買うを追加して」「年末調整を完了にして」のように頼めます。完了はすぐ実行します（Google ToDo リストのアプリで戻せます）
+- 使うのは専用リスト「Jarvis」だけです。ほかのリストは読みも書きもしません
+- 1時間ごとの記憶の整理に合わせて同期します
+  - 整理の前に、アプリで行った完了・追加・変更・削除を Jarvis のタスクに取り込みます
+  - 整理の後に、Jarvis のタスクの変更をリストへ反映します。Jarvis のタスクから外れたものは削除せず完了にします
+  - 整理する会話がない回も、アプリでの操作の取り込みと、反映できなかった分の再送は行います
+- 同期の状態は `data/todo.json` に、結果は `data/logs/organize.log` に残ります
+- 期限は日付だけです（Tasks API が時刻を保存しないため）。時刻はタイトルに入り、時刻どおりの通知が必要なものはカレンダーに入れてください
+- 連携を始めた直後の最初の整理で、記憶の文書から同期するタスク一覧を作ります（会話がなくても実行されます）
+- やめるときは Windows の「資格情報マネージャー」で `Jarvis-Google` を削除し、Google アカウントの「サードパーティ製のアプリとサービス」でアクセスを取り消してください
 
 ## 起動
 
@@ -144,6 +164,7 @@ data/memory・data/archive の中身と data/logs の .jsonl ファイルは直�
 - `jarvis/assistant.py` — Claude API との会話とツール実行（共通部分）
 - `jarvis/tools.py` — ツール（記憶・画面表示）と Web 検索の定義
 - `jarvis/icloud.py` — iCloud カレンダーの読み書きと資格情報の登録（`jarvis-calendar-setup.bat` から実行）
+- `jarvis/gtasks.py` — Google ToDo リストの操作と同期、資格情報の登録（`jarvis-todo-setup.bat` から実行）
 - `jarvis/memory.py` — 長期記憶の文書・未整理ログ・保管庫の読み書き
 - `jarvis/memorizer.py` — 会話ログの記録と、整理（分析・分類）の指示づくりと結果の反映
 - `organize.pyw` — スケジュールタスクが使う整理用コマンド（`prepare` / `apply`）

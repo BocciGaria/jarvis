@@ -13,6 +13,7 @@ import os
 import time
 from datetime import datetime
 
+from jarvis import gtasks
 from jarvis.memory import (
     LOG_DIR,
     PENDING_LOG,
@@ -48,8 +49,11 @@ Jarvisはこの記憶を読み、ユーザーを深く理解した頼れる相�
 # 新しい会話ログ（未整理）
 {sessions}
 
-# ユーザーからの直接の依頼
+# ユーザーからの直接の依頼（「Google ToDo リストで」はユーザーがスマホなどで行った操作や、Jarvis が会話中に行った操作で、すでに下のタスク一覧に反映済み）
 {requests}
+
+# Google ToDo リストと同期するタスク一覧（現在）
+{tasks}
 
 # 分類と分析のルール
 - 内容を話題ごとに文書へ分類する。例: タスク、ユーザーの人格、朝会・夕会のアジェンダ、資産管理、健康管理、目標管理。ほかにも仕事・人間関係・趣味・住まい・学びなど、会話に合わせて必要な文書を作る。
@@ -65,9 +69,12 @@ Jarvisはこの記憶を読み、ユーザーを深く理解した頼れる相�
 - Jarvis の発言にある「［画面に表示: 見出し］」以下は、声の代わりに画面のパネルで見せた内容。ユーザーが選んだ・決めた・頼んだことに関わる部分だけを参考にし、検索結果や一般的な情報の一覧はそのまま保存しない。
 - 「覚えておいて」と頼まれた内容は必ずどこかの文書に反映する。「忘れて」と頼まれた内容は、すべての文書と資料から消す。
 - 常時文書の合計が目安を超えそうなら、細部を資料に移すか要約して収める。
+- tasks には、タスクの文書と同じ内容の未完了タスクを毎回全件書く。これが Google ToDo リストに同期される。載せなかったタスクは完了扱いになるので、完了・取りやめになったものだけを外す。
+- tasks の key は、現在のタスク一覧にあるものは必ずそのまま使う（「g-」で始まるものも）。新しいタスクには短い英数字とハイフンの key を新しく付け、一度外した key は使い回さない。
+- tasks の title はスマホの一覧で見て分かる短い名前にする。時刻があれば title に含める（例: 18:00 上司と1on1）。due は期限の日付（YYYY-MM-DD）で、はっきりしなければ null にして notes に書く。notes には次の一手を短く書く。定期タスクは、いま動いている回だけを入れる。
 
 # 出力形式（このJSONだけを書く）
-{{"write": [{{"path": "タスク.md", "content": "# タスク\\n更新: ...\\n\\n..."}}, ...], "delete": ["消す文書のパス", ...]}}
+{{"write": [{{"path": "タスク.md", "content": "# タスク\\n更新: ...\\n\\n..."}}, ...], "delete": ["消す文書のパス", ...], "tasks": [{{"key": "nenmatsu-chosei", "title": "...", "due": "2026-11-15", "notes": "..."}}, ...]}}
 - write には新しく作る文書と書き換える文書だけを全文で入れる。変更のない文書は入れない。
 - 改名や資料への移動は、新しいパスで write し、古いパスを delete に入れる。
 - パスは「名前.md」か「reference/名前.md」。名前に / \\ : * ? " < > | は使わない。"""
@@ -111,6 +118,7 @@ def apply_batch(result: dict) -> str:
     _validate_result(result)
     entries = _processing_entries()
     apply_doc_changes(result["write"], result["delete"])
+    gtasks.set_tasks(result["tasks"])
     archive_entries(entries)
     PROCESSING_LOG.unlink()
     return (
@@ -139,6 +147,8 @@ def _validate_result(result) -> None:
     )
     for path in [w["path"] for w in result["write"]] + result["delete"]:
         doc_path(path)  # パスが正しくなければ ValueError
+    ok("tasks" in result, "tasks がありません（未完了のタスクを毎回全件書いてください）")
+    gtasks.validate_tasks(result["tasks"])
     written = {doc_path(w["path"]) for w in result["write"]}
     ok(not any(doc_path(d) in written for d in result["delete"]), "同じ文書を write と delete の両方に入れています")
 
@@ -178,6 +188,7 @@ def _build_prompt(entries: list[dict]) -> str:
         documents=documents,
         sessions="\n\n".join(blocks) or "（なし）",
         requests="\n".join(requests) or "（なし）",
+        tasks=gtasks.tasks_for_prompt(),
     )
 
 

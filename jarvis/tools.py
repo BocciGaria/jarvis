@@ -1,4 +1,4 @@
-"""Jarvis が使えるローカルツール（カレンダー・記憶・画面表示）。"""
+"""Jarvis が使えるローカルツール（カレンダー・ToDo・記憶・画面表示）。"""
 
 import json
 import ssl
@@ -9,12 +9,13 @@ from urllib.parse import urljoin
 
 import certifi
 
-from jarvis import icloud
+from jarvis import gtasks, icloud
 from jarvis.memory import doc_title, load_docs, log_request, read_doc, search_archive
 
 # Claude に渡すローカルツール定義。Web 検索（Anthropic 側で実行）は tools_for() で追加する。
 TOOLS = [
     *icloud.CALENDAR_TOOLS,
+    *gtasks.TODO_TOOLS,
     {
         "name": "save_memory",
         "description": (
@@ -233,6 +234,8 @@ def run_tool(name: str, args) -> tuple[str, bool]:
     """ツールを実行して (結果テキスト, エラーかどうか) を返す。"""
     if name in icloud.TOOL_NAMES:
         return icloud.run_tool(name, args)
+    if name in gtasks.TOOL_NAMES:
+        return gtasks.run_tool(name, args)
 
     error = _validate(name, args)
     if error:

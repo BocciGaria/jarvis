@@ -781,7 +781,7 @@ events.onmessage = (e) => {
 initWake();
 
 // ---------- メモ・リセット ----------
-const REQUEST_LABEL = { note: "覚えておいて", forget: "忘れて" };
+const REQUEST_LABEL = { note: "覚えておいて", forget: "忘れて", todo: "Google ToDo リストで" };
 function renderDoc(s) {
   return renderBody(s).replace(/^(#{1,4})\s+(.+)$/gm, (_, h, t) => `<strong class="doc-h${h.length}">${t}</strong>`);
 }
