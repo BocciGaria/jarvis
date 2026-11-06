@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent
 load_dotenv(ROOT / ".env")
 
-from jarvis import gtasks  # noqa: E402
+from jarvis import gcal, gtasks  # noqa: E402
 from jarvis.memorizer import LOG_DIR, ORGANIZER_LOG, apply_batch, prepare_batch  # noqa: E402  .env を読んでから取り込む
 
 
@@ -26,16 +26,16 @@ def log(message: str) -> None:
         f.write(f"[{datetime.now():%Y-%m-%d %H:%M}] {message}\n")
 
 
-def sync(step) -> str:
-    """Google ToDo リストと同期して結果の文を返す。失敗しても記憶の整理は止めず、次回もう一度試す。"""
+def sync(label: str, step) -> str:
+    """Google ToDo リスト・カレンダーと同期して結果の文を返す。失敗しても記憶の整理は止めず、次回もう一度試す。"""
     try:
         message = step()
     except Exception as e:
         message = f"同期に失敗しました（次回もう一度試します）: {type(e).__name__}: {e}"
     if not message:
-        return "未設定のため同期していません"
-    log(f"Google ToDo リスト: {message}")
-    return f"Google ToDo リスト: {message}"
+        return f"{label}: 未連携のため同期していません"
+    log(f"{label}: {message}")
+    return f"{label}: {message}"
 
 
 def main() -> None:
@@ -43,7 +43,8 @@ def main() -> None:
     command = sys.argv[1] if len(sys.argv) > 1 else ""
 
     if command == "prepare":
-        sync(gtasks.pull_and_push)  # スマホで完了にしたものなども今回の整理の材料にする
+        sync("Google ToDo リスト", gtasks.pull_and_push)  # スマホで完了にしたものなども今回の整理の材料にする
+        sync("Google カレンダー", gcal.prepare)
         materials = prepare_batch()
         print(materials or "整理する会話はありません")
     elif command == "apply" and len(sys.argv) > 2:
@@ -57,7 +58,8 @@ def main() -> None:
         result_file.unlink()
         log(message)
         print(message)
-        print(sync(gtasks.push))
+        print(sync("Google カレンダー", gcal.push))  # 予定を先に入れてから、移したタスクを ToDo から消す
+        print(sync("Google ToDo リスト", gtasks.push))
     else:
         print(__doc__)
         sys.exit(2)

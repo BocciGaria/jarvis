@@ -13,7 +13,7 @@ import os
 import time
 from datetime import datetime
 
-from jarvis import gtasks
+from jarvis import gcal, gtasks
 from jarvis.memory import (
     LOG_DIR,
     PENDING_LOG,
@@ -46,7 +46,10 @@ ORGANIZE_MATERIALS = """今日: {today}
 {requests}
 
 # Google ToDo リストと同期するタスク一覧（現在）
-{tasks}"""
+{tasks}
+
+# Google カレンダーの今後の予定（読み取りのみ。ここにある予定は events に書かない）
+{events}"""
 
 
 def new_session() -> tuple[str, str]:
@@ -86,8 +89,10 @@ def apply_batch(result: dict) -> str:
     """整理結果（スキル organize-memory の出力形式）を記憶の文書に反映し、整理中のログを保管庫に移す。"""
     _validate_result(result)
     entries = _processing_entries()
+    events = result.get("events") or []
     apply_doc_changes(result["write"], result["delete"])
-    gtasks.set_tasks(result["tasks"])
+    gcal.queue_events(events)  # 追加は整理の後の gcal.push() で行う
+    gtasks.set_tasks(result["tasks"], moved=[e["task_key"] for e in events if e.get("task_key")])
     archive_entries(entries)
     PROCESSING_LOG.unlink()
     return (
@@ -118,6 +123,8 @@ def _validate_result(result) -> None:
         doc_path(path)  # パスが正しくなければ ValueError
     ok("tasks" in result, "tasks がありません（未完了のタスクを毎回全件書いてください）")
     gtasks.validate_tasks(result["tasks"])
+    gcal.validate_events(result.get("events") or [])
+    ok(not result.get("events") or gcal.is_configured(), "Google カレンダーが未連携なので events は書けません")
     written = {doc_path(w["path"]) for w in result["write"]}
     ok(not any(doc_path(d) in written for d in result["delete"]), "同じ文書を write と delete の両方に入れています")
 
@@ -158,6 +165,7 @@ def _build_materials(entries: list[dict]) -> str:
         sessions="\n\n".join(blocks) or "（なし）",
         requests="\n".join(requests) or "（なし）",
         tasks=gtasks.tasks_for_prompt(),
+        events=gcal.upcoming_for_prompt(),
     )
 
 

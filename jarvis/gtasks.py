@@ -5,35 +5,24 @@
 - タスクの正本は data/todo.json の tasks。記憶の整理（organize.pyw）が全件を書き直す
     1. 整理の前に pull_and_push(): Google 側の完了・追加・変更・削除を tasks に取り込み、整理の材料として記録する
     2. 整理の後に push(): tasks との差分を Google 側に反映する
-- tasks から消えたタスクは削除せず完了にする（ユーザーがあとから戻せるように）
+- tasks から消えたタスクは削除せず完了にする（ユーザーがあとから戻せるように）。カレンダーの予定に移したものだけは削除する
 - 期限は日付のみ。Tasks API は時刻を保存しないので、時刻はタイトルかメモに書く
 """
 
 import json
-import sys
 from datetime import date
-from pathlib import Path
 
-import keyring
-from google.auth.exceptions import GoogleAuthError, RefreshError
-from google.auth.transport.requests import AuthorizedSession
-from google.oauth2.credentials import Credentials
-
+from jarvis import google_auth
 from jarvis.memory import DATA_DIR, load_docs, log_request
 
 API = "https://tasks.googleapis.com/tasks/v1"
-SCOPES = ["https://www.googleapis.com/auth/tasks"]
-TOKEN_URI = "https://oauth2.googleapis.com/token"
-KEYRING_SERVICE = "Jarvis-Google"
 LIST_NAME = "Jarvis"
 STATE_FILE = DATA_DIR / "todo.json"
-TIMEOUT = 20
 MAX_LISTED = 100
-SETUP_HINT = "jarvis-todo-setup.bat を実行して Google アカウントを連携してください"
 FIELDS = ("title", "due", "notes")
 
 _TODO_PROPS = {
-    "title": {"type": "string", "description": "タスクの名前。時刻があれば名前に含める（例: 18:00 1on1）"},
+    "title": {"type": "string", "description": "タスクの名前。期限に時刻があれば名前に含める（例: 17:00まで 請求書を送る）"},
     "due": {"type": "string", "description": "期限の日付（2026-11-06 の形式）。時刻は保存できない"},
     "notes": {"type": "string", "description": "メモ（次の一手など）"},
 }
@@ -47,7 +36,7 @@ TODO_TOOLS = [
     },
     {
         "name": "add_todo",
-        "description": "Google ToDo リストにタスクを追加する。",
+        "description": "Google ToDo リストに、時間帯の決まっていない作業を追加する。",
         "eager_input_streaming": True,
         "input_schema": {"type": "object", "properties": _TODO_PROPS, "required": ["title"]},
     },
@@ -84,33 +73,22 @@ class TodoError(Exception):
 
 # ── 接続 ──────────────────────────────
 
-_session: AuthorizedSession | None = None
 _list_id: str | None = None
 
 
 def is_configured() -> bool:
-    return bool(keyring.get_password(KEYRING_SERVICE, "refresh_token"))
-
-
-def _get_session() -> AuthorizedSession:
-    global _session
-    if _session is None:
-        secrets = {name: keyring.get_password(KEYRING_SERVICE, name) for name in ("client_id", "client_secret", "refresh_token")}
-        if not all(secrets.values()):
-            raise TodoError(f"Google ToDo リストが未設定です。{SETUP_HINT}")
-        _session = AuthorizedSession(Credentials(None, token_uri=TOKEN_URI, scopes=SCOPES, **secrets))
-    return _session
+    return google_auth.has_tasks()
 
 
 def _request(method: str, path: str, **kwargs) -> dict:
-    response = _get_session().request(method, API + path, timeout=TIMEOUT, **kwargs)
-    response.raise_for_status()
-    return response.json() if response.content else {}
+    if not is_configured():
+        raise TodoError(f"Google ToDo リストが未連携です。{google_auth.SETUP_HINT}")
+    return google_auth.request(method, API + path, **kwargs)
 
 
 def _forget_connection() -> None:
-    global _session, _list_id
-    _session = None
+    global _list_id
+    google_auth.forget_connection()
     _list_id = None
 
 
@@ -280,12 +258,9 @@ def run_tool(name: str, args) -> tuple[str, bool]:
         return _complete_todo(args), False
     except TodoError as e:
         return str(e), True
-    except (RefreshError, GoogleAuthError):
+    except Exception as e:  # 認証切れ・通信エラーなど。会話は止めずに、失敗したことを伝える
         _forget_connection()
-        return f"Google にログインできませんでした。連携が切れたのかもしれません。{SETUP_HINT}", True
-    except Exception as e:  # 通信エラーなど。会話は止めずに、失敗したことを伝える
-        _forget_connection()
-        return f"Google ToDo リストの操作に失敗しました（{type(e).__name__}）。実行されたかどうかは一覧で確かめてください", True
+        return google_auth.describe_error(e, "Google ToDo リスト"), True
 
 
 # ── 同期 ──────────────────────────────
@@ -305,10 +280,11 @@ def save_state(state: dict) -> None:
     tmp.replace(STATE_FILE)
 
 
-def set_tasks(tasks: list[dict]) -> None:
-    """整理の結果で正本を置き換える。"""
+def set_tasks(tasks: list[dict], moved: list[str] = ()) -> None:
+    """整理の結果で正本を置き換える。moved はカレンダーの予定に移したタスクの key（完了ではなく削除する）。"""
     state = load_state()
     state["tasks"] = {t["key"]: _clean(t) for t in tasks}
+    state["moved"] = sorted(set(state.get("moved", [])) | {k for k in moved if k not in state["tasks"]})
     save_state(state)
 
 
@@ -382,13 +358,25 @@ def _pull(state: dict, list_id: str) -> list[str]:
 def _push(state: dict, list_id: str) -> str:
     """正本と Google 側の差分を反映する。途中で失敗しても次回続きから直せるよう、1件ごとに保存する。"""
     tasks, synced = state["tasks"], state["synced"]
-    added = changed = completed = 0
+    moved = set(state.get("moved", []))
+    added = changed = completed = removed = 0
     for key, known in list(synced.items()):
         if key not in tasks:
-            _request("PATCH", f"/lists/{list_id}/tasks/{known['id']}", json={"status": "completed"})
+            if key in moved:  # 予定としてカレンダーに移したので、完了ではなく ToDo から消す
+                try:
+                    _request("DELETE", f"/lists/{list_id}/tasks/{known['id']}")
+                except google_auth.GoogleApiError as e:
+                    if e.status != 404:
+                        raise
+                removed += 1
+            else:
+                _request("PATCH", f"/lists/{list_id}/tasks/{known['id']}", json={"status": "completed"})
+                completed += 1
             del synced[key]
             save_state(state)
-            completed += 1
+    if state.get("moved"):
+        state["moved"] = []
+        save_state(state)
     for key, fields in tasks.items():
         known = synced.get(key)
         if known is None:
@@ -401,7 +389,17 @@ def _push(state: dict, list_id: str) -> str:
             continue
         synced[key] = {"id": task["id"], **fields}
         save_state(state)
-    return f"追加 {added}件・変更 {changed}件・完了 {completed}件"
+    return f"追加 {added}件・変更 {changed}件・完了 {completed}件" + (f"・予定に移して削除 {removed}件" if removed else "")
+
+
+def _sync(state: dict, list_id: str) -> str:
+    """Google 側の変更を先に取り込んでから、残りの差分を送る。
+    食い違いはユーザーがアプリで手を加えたということなので、同じタスクは Google 側を優先する。"""
+    events = _pull(state, list_id)
+    save_state(state)
+    for event in events:
+        log_request("todo", event)  # 次の整理で文書にも反映させる
+    return f"取り込み {len(events)}件 ／ 反映 {_push(state, list_id)}"
 
 
 def pull_and_push() -> str | None:
@@ -410,12 +408,9 @@ def pull_and_push() -> str | None:
         return None
     state = load_state()
     list_id = _start(state)
-    events = _pull(state, list_id)
-    save_state(state)
-    for event in events:
-        log_request("todo", event)
+    message = _sync(state, list_id)
     _request_first_sync(state)
-    return f"取り込み {len(events)}件 ／ 反映 {_push(state, list_id)}"
+    return message
 
 
 def _request_first_sync(state: dict) -> None:
@@ -429,50 +424,18 @@ def _request_first_sync(state: dict) -> None:
 
 
 def push() -> str | None:
-    """整理の後に呼ぶ。正本の差分を Google 側に反映する。未設定なら None。"""
+    """整理の後に呼ぶ。整理の間に Google 側で変わった分を優先して取り込み、正本の差分を反映する。未設定なら None。"""
     if not is_configured():
         return None
     state = load_state()
     list_id = _start(state)
-    return f"反映 {_push(state, list_id)}"
+    return _sync(state, list_id)
 
 
-# ── 初回設定 ──────────────────────────────
+# ── 初回設定（google_auth.setup から呼ぶ） ──────────────────────────────
 
 
-def setup() -> int:
-    """ブラウザで Google の許可を受け、資格情報マネージャーに保存して専用リストを用意する。"""
-    from google_auth_oauthlib.flow import InstalledAppFlow
-
-    print("Google ToDo リストの設定\n手順は README の「Google ToDo リストの設定」を見てください。\n")
-    answer = input("ダウンロードした OAuth クライアントの JSON ファイルのパス: ").strip().strip('"')
-    path = Path(answer) if answer else None
-    if path is None or not path.is_file():
-        print("ファイルが見つからないため中止しました")
-        return 1
-    print("\nブラウザが開きます。Google アカウントを選んで許可してください…")
-    try:
-        flow = InstalledAppFlow.from_client_secrets_file(str(path), SCOPES)
-        credentials = flow.run_local_server(port=0, access_type="offline", prompt="consent", open_browser=True)
-    except Exception as e:
-        print(f"許可を受けられませんでした（{type(e).__name__}: {e}）。何も保存していません")
-        return 1
-    if not credentials.refresh_token:
-        print("更新用のトークンを受け取れませんでした。何も保存していません")
-        return 1
-    keyring.set_password(KEYRING_SERVICE, "client_id", credentials.client_id)
-    keyring.set_password(KEYRING_SERVICE, "client_secret", credentials.client_secret)
-    keyring.set_password(KEYRING_SERVICE, "refresh_token", credentials.refresh_token)
-    try:
-        _, created = _ensure_list()
-    except Exception as e:
-        print(f"保存しましたが、接続の確認に失敗しました（{type(e).__name__}）。Tasks API を有効にしたか確かめてください")
-        return 1
-    print(f"接続できました。資格情報マネージャーに保存し、リスト「{LIST_NAME}」を{'作りました' if created else '確認しました'}。")
-    print(f"\nダウンロードした JSON ファイルはもう不要なので、削除してかまいません: {path}")
-    print("Jarvis を起動し直すと使えるようになります。")
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(setup())
+def ensure_list_for_setup() -> str:
+    _forget_connection()
+    _, created = _ensure_list()
+    return "作りました" if created else "確認しました"

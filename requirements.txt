@@ -2,7 +2,5 @@ anthropic
 python-dotenv
 openwakeword
 sounddevice
-caldav
-icalendar
 keyring
 google-auth-oauthlib

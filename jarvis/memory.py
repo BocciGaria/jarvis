@@ -30,7 +30,7 @@ MEMORY_LOCK = threading.RLock()
 
 # 「名前.md」か「reference/名前.md」。Windows でファイル名に使えない文字と、先頭のドットは受け付けない
 DOC_PATH = re.compile(r'^(reference/)?[^/\\:*?"<>|.][^/\\:*?"<>|]{0,60}\.md$')
-REQUEST_LABEL = {"note": "覚えておいて", "forget": "忘れて", "todo": "Google ToDo リストで"}
+REQUEST_LABEL = {"note": "覚えておいて", "forget": "忘れて", "todo": "Google ToDo リストで", "calendar": "Google カレンダーで"}
 
 
 def memory_budget() -> int:
