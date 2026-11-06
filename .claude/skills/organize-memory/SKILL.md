@@ -1,6 +1,11 @@
 ---
 name: organize-memory
 description: Jarvis の未整理の会話ログを分析・分類して長期記憶の文書（data/memory）を更新し、タスクを Google ToDo リストと同期して、会話に出た予定を Google カレンダーに入れる。スケジュールタスク jarvis-memory から呼ばれるほか、ユーザーが Jarvis の記憶の整理を頼んだときに使う。Jarvis のコードの開発や修正には使わない。
+allowed-tools:
+  - Write(/data/logs/result.json)
+  - Edit(/data/logs/result.json)
+  - PowerShell(.venv/Scripts/python.exe organize.pyw prepare)
+  - PowerShell(.venv/Scripts/python.exe organize.pyw apply data/logs/result.json)
 ---
 
 # Jarvis の記憶の整理

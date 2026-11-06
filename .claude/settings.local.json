@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "PowerShell(.venv/Scripts/python.exe organize.pyw prepare)",
-      "PowerShell(.venv/Scripts/python.exe organize.pyw apply data/logs/result.json)"
+      "PowerShell(.venv/Scripts/python.exe organize.pyw apply data/logs/result.json)",
+      "Write(/data/logs/result.json)",
+      "Edit(/data/logs/result.json)"
     ]
   }
 }
